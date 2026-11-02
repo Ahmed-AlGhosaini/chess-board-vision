@@ -32,7 +32,45 @@ function tone(ac: AudioContext, at: number, freq: number, gain: number, length: 
   osc.stop(at + length);
 }
 
-/** Small synthesised board sounds (no audio files needed). */
+// Lichess "standard" sound set, fetched and cached by the server (see /sounds in server/main.py)
+const FILES: Record<SoundKind, string> = {
+  move: "Move",
+  capture: "Capture",
+  check: "Move", // Lichess has no separate check sound in this set
+  end: "GenericNotify",
+  error: "Error",
+  success: "Confirmation",
+};
+// undefined = still loading, null = unavailable (offline): use the synthesised fallback
+const samples = new Map<SoundKind, AudioBuffer | null>();
+
+// Decode up front (an offline context needs no user gesture) so the first move already uses them
+function preload() {
+  let decoder: OfflineAudioContext;
+  try {
+    decoder = new OfflineAudioContext(1, 1, 44100);
+  } catch {
+    return;
+  }
+  for (const kind of Object.keys(FILES) as SoundKind[]) {
+    fetch(`/sounds/${FILES[kind]}.mp3`)
+      .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject()))
+      .then((b) => decoder.decodeAudioData(b))
+      .then((buf) => samples.set(kind, buf), () => samples.set(kind, null));
+  }
+}
+preload();
+
+function sample(ac: AudioContext, at: number, buf: AudioBuffer, gain: number) {
+  const src = ac.createBufferSource();
+  src.buffer = buf;
+  const g = ac.createGain();
+  g.gain.value = gain;
+  src.connect(g).connect(ac.destination);
+  src.start(at);
+}
+
+/** Lichess board sounds, with small synthesised ones while they load or when offline. */
 export function playSound(kind: SoundKind) {
   const { sound, volume } = useSettings.getState();
   if (!sound || volume <= 0) return;
@@ -40,6 +78,8 @@ export function playSound(kind: SoundKind) {
     ctx ??= new AudioContext();
     if (ctx.state === "suspended") void ctx.resume();
     const t = ctx.currentTime + 0.005;
+    const buf = samples.get(kind);
+    if (buf) return sample(ctx, t, buf, volume);
     const v = volume * 1.6;
     switch (kind) {
       case "move":

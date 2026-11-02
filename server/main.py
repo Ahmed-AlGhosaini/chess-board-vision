@@ -291,6 +291,31 @@ async def piece(piece_set: str, code: str):
     return FileResponse(path, media_type="image/svg+xml", headers={"Cache-Control": "max-age=604800"})
 
 
+# ---------------------------------------------------------------- sounds
+
+LILA_SOUND_URL = "https://raw.githubusercontent.com/lichess-org/lila/master/public/sound/standard/{name}.mp3"
+SOUND_CACHE = DATA / "sounds"
+SOUND_NAMES = {"Move", "Capture", "GenericNotify", "Error", "Confirmation"}
+
+
+@app.get("/sounds/{name}.mp3")
+async def sound(name: str):
+    if name not in SOUND_NAMES:
+        raise HTTPException(404)
+    path = SOUND_CACHE / f"{name}.mp3"
+    if not path.exists():
+        def download():
+            with urllib.request.urlopen(LILA_SOUND_URL.format(name=name), timeout=20) as r:
+                return r.read()
+        try:
+            data = await asyncio.to_thread(download)
+        except (urllib.error.URLError, TimeoutError):
+            raise HTTPException(404, "Sound not available offline")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+    return FileResponse(path, media_type="audio/mpeg", headers={"Cache-Control": "max-age=604800"})
+
+
 # ---------------------------------------------------------------- UI
 
 if UI_DIST.exists():

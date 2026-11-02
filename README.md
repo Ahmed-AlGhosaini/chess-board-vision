@@ -222,6 +222,10 @@ python tools/e2e_test.py test_screens path/to/stockfish
   [lichess-org/lila](https://github.com/lichess-org/lila/tree/master/public/piece).
   The UI's piece-set option downloads the same sets. Each set has its own licence,
   listed in lila's [`COPYING.md`](https://github.com/lichess-org/lila/blob/master/COPYING.md).
+* **Sounds.** Move, capture and notification sounds are Lichess's "standard" set, downloaded
+  from [lila](https://github.com/lichess-org/lila/tree/master/public/sound/standard) on first
+  use and cached in `data/sounds/` (AGPL-3.0, see lila's `COPYING.md`). Offline, small
+  synthesised sounds are used instead.
 * **UI design.** The analysis UI is inspired by
   [En Croissant](https://github.com/franciscoBSalgueiro/en-croissant) by Francisco Salgueiro:
   its layout (sidebar, tabs, board with engine/report/explorer/annotation panels) and

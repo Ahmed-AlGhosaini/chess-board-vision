@@ -10,6 +10,7 @@ export default defineConfig({
     proxy: {
       "/api": backend,
       "/pieces": backend,
+      "/sounds": backend,
       "/ws": { target: backend.replace("http", "ws"), ws: true },
     },
   },
