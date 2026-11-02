@@ -1,0 +1,5 @@
+# running analyze.py
+numpy
+opencv-python
+pillow
+chess

@@ -1,0 +1,5 @@
+# retraining the square classifier (train.py)
+-r requirements.txt
+jax
+optax
+resvg-py
