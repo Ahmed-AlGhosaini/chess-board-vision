@@ -85,18 +85,41 @@ python analyze.py shot.png --fen-only            # just print the FEN + Lichess 
 python analyze.py shot.png --debug               # save a crop with each square's label/confidence
 ```
 
+## Training data
+
+The data is synthetic, so it is generated rather than shipped. To get it
+without training:
+
+```bash
+pip install numpy pillow resvg-py
+python generate_data.py                          # -> data.npz, ~2 min, ~600 MB
+python generate_data.py --png-dir squares/       # also a PNG per square: squares/<split>/<class>/
+python generate_data.py --train-boards 200 --preview preview.png   # small sample + a contact sheet
+```
+
+The first run downloads ~34 Lichess piece sets into `assets/pieces/`.
+Defaults (2,500 train + 300 val + 300 held-out boards, seed 0) are the
+settings the shipped model was trained with. `data.npz` holds three splits
+(`tr` train, `va` validation, `ho` held-out piece sets), each as
+`X` (N,32,32,3) uint8 images, `y` labels indexing `classes`, and `s` the piece
+set of every square. The PNG layout works with most image-classification
+tools, e.g. torchvision's `ImageFolder`.
+
 ## Retraining
 
 ```bash
 pip install -r requirements-train.txt            # adds jax, optax, resvg-py
-python train.py --data-cache data.npz            # downloads ~34 Lichess piece sets on first run
+python train.py --data-cache data.npz --out models/my_model.npz
+python analyze.py shot.png --model models/my_model.npz
 python train.py --train-boards 6000 --epochs 12 --holdout   # bigger run, nothing held out
 ```
 
+`--data-cache` loads `data.npz` if it exists (e.g. from `generate_data.py`),
+otherwise generates it and saves it there. Without `--out` the new model
+replaces `models/squarenet.npz`.
+
 The default run (2,500 boards = 160k squares, 8 epochs) took ~50 min on two
-CPU cores; a laptop with more cores or a GPU is much faster. `--data-cache`
-saves the generated data so you can iterate on the model without re-rendering.
-After training, the script checks that the NumPy runtime agrees with the JAX
+CPU cores; a laptop with more cores or a GPU is much faster. After training, the script checks that the NumPy runtime agrees with the JAX
 model and prints the most common confusions and which piece sets cause them.
 
 Regression test after changes:

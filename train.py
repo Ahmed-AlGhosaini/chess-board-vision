@@ -22,8 +22,7 @@ import optax
 
 from chessvision import CLASSES, INPUT_SIZE
 from chessvision.model import N_CONV, SquareClassifier, normalise
-from chessvision.pieces import DEFAULT_SETS, ensure_piece_sets
-from chessvision.synth import make_dataset_parallel as generate
+from chessvision.dataset import build_splits, load_npz, save_npz, split_sets
 
 EPS = 1e-5
 
@@ -117,29 +116,25 @@ def main():
     ap.add_argument("--out", default="models/squarenet.npz")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--data-cache", default=None,
-                    help="save generated data to / load it from this .npz (fast re-runs)")
+                    help="load data from this .npz if it exists (e.g. made by generate_data.py), "
+                         "otherwise generate it and save it there")
     args = ap.parse_args()
-
-    sets = ensure_piece_sets(args.pieces_dir, args.sets or DEFAULT_SETS)
-    holdout = [s for s in (args.holdout or []) if s in sets]
-    train_sets = [s for s in sets if s not in holdout]
-    print(f"training on {len(train_sets)} piece sets; held out: {holdout or 'none'}")
 
     t = time.time()
     if args.data_cache and Path(args.data_cache).exists():
-        z = np.load(args.data_cache)
-        Xtr, ytr, Xva, yva, sva = z["Xtr"], z["ytr"], z["Xva"], z["yva"], z["sva"]
-        Xho, yho = (z["Xho"], z["yho"]) if "Xho" in z else (None, None)
-        print(f"loaded cached data from {args.data_cache}")
+        data = load_npz(args.data_cache)
+        train_sets = sorted(set(data["str"].tolist())) if "str" in data else []
+        holdout = sorted(set(data["sho"].tolist())) if "sho" in data else []
+        print(f"loaded data from {args.data_cache} (piece-set options are ignored)")
     else:
-        Xtr, ytr, _ = generate(args.pieces_dir, train_sets, args.train_boards, args.seed + 1, args.workers)
-        Xva, yva, sva = generate(args.pieces_dir, train_sets, args.val_boards, args.seed + 2, args.workers)
-        Xho = yho = None
-        if holdout:
-            Xho, yho, _ = generate(args.pieces_dir, holdout, args.val_boards, args.seed + 3, args.workers)
+        train_sets, holdout = split_sets(args.pieces_dir, args.sets, args.holdout)
+        data = build_splits(args.pieces_dir, train_sets, holdout, args.train_boards,
+                            args.val_boards, args.seed, args.workers)
         if args.data_cache:
-            extra = {"Xho": Xho, "yho": yho} if holdout else {}
-            np.savez(args.data_cache, Xtr=Xtr, ytr=ytr, Xva=Xva, yva=yva, sva=sva, **extra)
+            save_npz(args.data_cache, data)
+    Xtr, ytr, Xva, yva, sva = data["Xtr"], data["ytr"], data["Xva"], data["yva"], data["sva"]
+    Xho, yho = data.get("Xho"), data.get("yho")
+    print(f"training on {len(train_sets)} piece sets; held out: {holdout or 'none'}")
     print(f"{len(Xtr):,} train / {len(Xva):,} val squares ready in {time.time() - t:.0f}s", flush=True)
 
     key = jax.random.PRNGKey(args.seed)
