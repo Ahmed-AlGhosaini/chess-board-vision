@@ -115,7 +115,10 @@ def _find_lines(prof: np.ndarray, extent: int, lineal_len: float,
     lineal_len: number of pixels summed per line (used to normalise strength).
     """
     peaks = _peaks(prof)
-    best, best_metric = None, -1.0
+    # Every candidate grid: two peaks a < b that are k lines apart, with a as line idx.
+    # Enumerated in the same order as the nested loops this replaces, so that
+    # argmax (first maximum) breaks ties the same way.
+    firsts, ds = [], []
     for a in peaks:
         for b in peaks:
             if b <= a:
@@ -126,19 +129,29 @@ def _find_lines(prof: np.ndarray, extent: int, lineal_len: float,
                     continue
                 if d_hint is not None and abs(d - d_hint) > 0.06 * d_hint:
                     continue
-                tol = max(1, int(round(0.04 * d)))
                 for idx in range(0, 7 - k):
                     first = a - idx * d
                     if first - d < -0.15 * d or first + 7 * d > extent - 1 + 0.15 * d:
                         continue
-                    lines = first + d * np.arange(7)
-                    vals = _support(prof, lines, tol)
-                    metric = float(np.sort(vals)[:5].sum())  # robust: all lines must be present
-                    if metric > best_metric:
-                        best_metric, best = metric, (first, d, tol)
-    if best is None:
+                    firsts.append(first)
+                    ds.append(d)
+    if not firsts:
         return None
-    first, d, tol = best
+    firsts_a, ds_a = np.array(firsts), np.array(ds)
+    tols = np.maximum(1, np.round(0.04 * ds_a).astype(int))
+    centres = np.round(firsts_a[:, None] + ds_a[:, None] * np.arange(7)).astype(int)
+    # _support() for all candidates at once: windowed max of the profile. The profile
+    # is >= 0, so zero padding reproduces its clipping at the ends exactly.
+    pad = len(prof) + int(tols.max()) + 2
+    padded = np.concatenate([np.zeros(pad, np.float32), prof.astype(np.float32), np.zeros(pad, np.float32)])
+    metric = np.empty(len(firsts), dtype=np.float32)
+    for tol in np.unique(tols):
+        sel = tols == tol
+        wmax = np.lib.stride_tricks.sliding_window_view(padded, 2 * tol + 1).max(axis=1)
+        vals = wmax[np.clip(centres[sel] + pad - tol, 0, len(wmax) - 1)]
+        metric[sel] = np.sort(vals, axis=1)[:, :5].sum(axis=1)  # robust: all lines must be present
+    i = int(np.argmax(metric))
+    first, d, tol = firsts[i], ds[i], int(tols[i])
     first, d = _refine(prof, first + d * np.arange(7), tol)
     vals = _support(prof, first + d * np.arange(7), max(1, int(round(0.04 * d))))
     # Sobel step response is ~4*contrast per pixel row; normalise to "grey levels"

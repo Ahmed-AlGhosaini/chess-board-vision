@@ -1,0 +1,6 @@
+engine
+.mypy_cache
+*.pyc
+data/
+ui/node_modules/
+ui/dist/

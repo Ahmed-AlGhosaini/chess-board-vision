@@ -3,3 +3,6 @@ numpy
 opencv-python
 pillow
 chess
+# running the UI (python app.py)
+fastapi
+uvicorn[standard]

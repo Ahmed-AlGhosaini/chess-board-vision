@@ -4,9 +4,13 @@ from __future__ import annotations
 import os
 import shutil
 from dataclasses import dataclass
+from pathlib import Path
 
 import chess
 import chess.engine
+
+DEFAULT_ENGINE = str(Path(__file__).resolve().parent.parent / "engine" / "stockfish"
+                     / "stockfish-windows-x86-64-universal.exe")
 
 
 @dataclass
@@ -27,7 +31,7 @@ class Candidate:
 
 def find_engine(explicit: str | None = None) -> str:
     for cand in (explicit, os.environ.get("STOCKFISH_PATH"), shutil.which("stockfish"),
-                 shutil.which("stockfish.exe")):
+                 shutil.which("stockfish.exe"), DEFAULT_ENGINE):
         if cand and os.path.isfile(cand):
             return cand
     raise FileNotFoundError(

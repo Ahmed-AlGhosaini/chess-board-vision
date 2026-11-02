@@ -1,5 +1,30 @@
 # chess-board-vision
 
+Read a chess position from a screenshot, then analyse it with Stockfish, either in a
+local chess GUI ([Analysis UI](#analysis-ui)) or from the command line.
+
+## Screenshots
+
+**1. Import a screenshot.** Drop or paste (Ctrl+V) a picture of a board. The board is
+located (blue grid) and every square is read; fix anything misread, choose the side to
+move, then analyse or play from the position.
+
+![Screenshot import: the detected board on the left, the recognised and editable position on the right](docs/ui-screenshot-import.png)
+
+**2. Analyse and keep playing.** The position opens in an analysis board with the
+engine running. Here the engine's suggestions 1. Re1 b5 were played from the imported
+position, and the analysis continues from the new position.
+
+![Analysis board with engine lines, best-move arrows and the move list](docs/ui-analysis.png)
+
+**3. Game report.** Accuracy, move classification and an evaluation graph for a whole
+game; the opening explorer, play vs engine, puzzles and databases are described
+[below](#analysis-ui).
+
+![Game report with accuracy, move classes and evaluation graph](docs/ui-report.png)
+
+## Command line
+
 Screenshot of a 2D chessboard → board located → pieces recognised → FEN →
 Stockfish's top 3 moves → numbered arrows drawn back onto the image.
 
@@ -30,6 +55,53 @@ Stockfish, depth 18 (eval from White's side):
 2. d3         +0.32   d3 b5 Bb3 d6 a4 Bd7 c3 Na5
 3. Bxc6       +0.17   Bxc6 dxc6 d3 Bg4 Nbd2 Nd7 Nc4 f6
 ```
+
+## Analysis UI
+
+A local chess GUI in the style of [En Croissant](https://github.com/franciscoBSalgueiro/en-croissant),
+with screenshot import built in: drop or paste (Ctrl+V) a picture of a board, fix any
+misread square, pick the side to move, and the engine starts analysing. From there you
+can keep playing moves and analysing variations, or play the engine from that position.
+
+```bash
+pip install -r requirements.txt
+cd ui && npm install && npm run build && cd ..   # once (Node 18+)
+python app.py                                     # opens http://127.0.0.1:8765
+```
+
+| Area | What it does |
+|---|---|
+| Boards | Tabs; analysis board with variations, NAGs, comments, drawn arrows; PGN/FEN import & export; board editor; keyboard and mouse-wheel navigation |
+| Screenshot import | Board found and read by the pipeline below; uncertain squares outlined; manual box selection if detection fails; orientation and side to move; then analyse or play |
+| Engine | Live MultiPV analysis over a websocket, eval bar, best-move arrows, hover previews, click a line to play it; several UCI engines side by side |
+| Report | Whole-game analysis: accuracy, ACPL, inaccuracies/mistakes/blunders annotated, best lines added, clickable eval graph |
+| Explorer | Lichess masters / players explorer (needs a [Lichess token](#lichess-api-token-optional)) and your local databases |
+| Play | Against any engine at 8 levels, with clocks, takeback and resign; or two players on one board |
+| Puzzles | From the Lichess puzzle API, filtered by theme and difficulty, with hints |
+| Databases | SQLite per database: import PGN files, download Lichess / Chess.com games, search, position index for the explorer |
+| Engines / Settings | Add UCI engines and edit their options; board and piece themes (Lichess sets), sounds, notation, light/dark |
+
+### Lichess API token (optional)
+
+Everything runs locally except a few features that talk to Lichess. Only one of them
+needs a token:
+
+| Feature | Token needed? |
+|---|---|
+| Screenshot import, analysis, game report, play vs engine, local databases | No (all local) |
+| Puzzles | No |
+| Downloading your Lichess games | No (a token raises the rate limit) |
+| Downloading Chess.com games | No (does not use Lichess) |
+| Explorer: Lichess Masters / Lichess players | **Yes**, Lichess rejects anonymous explorer requests |
+
+To use the online explorer, create a token at <https://lichess.org/account/oauth/token>
+(no scopes needed) and paste it in **Settings → Lichess**. It is stored in your browser
+and sent only to the local server, which forwards it to Lichess. Without a token, the
+explorer still works on your local databases.
+
+`server/` is the FastAPI backend; `ui/` is React + Mantine + chessground + chessops.
+For frontend development run `python app.py --no-browser` and `npm run dev` in `ui/`.
+User data (engines, databases, piece cache) lives in `data/`.
 
 ## Pipeline
 
@@ -142,3 +214,23 @@ python tools/e2e_test.py test_screens path/to/stockfish
 * Piece sets are downloaded from the open-source Lichess repository
   (`lichess-org/lila/public/piece`) to your machine for training only; each set
   has its own licence, listed in lila's `COPYING.md`.
+
+## Resources and credits
+
+* **Piece sets (training data and UI).** The synthetic training boards are rendered
+  from the piece sets in the open-source Lichess repository,
+  [lichess-org/lila](https://github.com/lichess-org/lila/tree/master/public/piece).
+  The UI's piece-set option downloads the same sets. Each set has its own licence,
+  listed in lila's [`COPYING.md`](https://github.com/lichess-org/lila/blob/master/COPYING.md).
+* **UI design.** The analysis UI is inspired by
+  [En Croissant](https://github.com/franciscoBSalgueiro/en-croissant) by Francisco Salgueiro:
+  its layout (sidebar, tabs, board with engine/report/explorer/annotation panels) and
+  feature set served as the model.
+* **Libraries.** [chessground](https://github.com/lichess-org/chessground) (the board,
+  GPL-3.0) and [chessops](https://github.com/niklasf/chessops) from the Lichess project,
+  [python-chess](https://github.com/niklasf/python-chess),
+  [Mantine](https://mantine.dev), [Tabler Icons](https://tabler.io/icons),
+  [Recharts](https://recharts.org) and [FastAPI](https://fastapi.tiangolo.com).
+* **Engine.** [Stockfish](https://stockfishchess.org) (GPL-3.0).
+* **Online data.** Puzzles, the opening explorer and game downloads use the
+  [Lichess API](https://lichess.org/api) and the [Chess.com published-data API](https://www.chess.com/news/view/published-data-api).
