@@ -12,21 +12,11 @@ import { newGame } from "../chess/tree";
 import { api } from "../lib/api";
 import { useTabs } from "../store/tabs";
 import { useUi } from "../store/ui";
+import type { VisionResult } from "../live/capture";
+import { BoardBox } from "./BoardBox";
 import { BoardEditor, editorToFen, possibleCastling, type EditorState } from "./BoardEditor";
 
-interface VisionResult {
-  ok: boolean;
-  error?: string;
-  width: number;
-  height: number;
-  bbox?: [number, number, number, number];
-  grid?: (string | null)[][];
-  confidence?: number[][];
-  whiteAtBottom?: boolean;
-  warnings?: string[];
-}
-
-const UNSURE = 0.8;
+export const UNSURE = 0.8;
 const fenLetter = (code: string) => (code[0] === "w" ? code[1] : code[1].toLowerCase());
 
 /** Picture-layout grid (row 0 = top of the image) -> FEN piece placement. */
@@ -50,7 +40,7 @@ export function gridToPlacement(grid: (string | null)[][], whiteAtBottom: boolea
 }
 
 /** Board square shown at picture row/col. */
-function squareAt(row: number, col: number, whiteAtBottom: boolean): Key {
+export function squareAt(row: number, col: number, whiteAtBottom: boolean): Key {
   const file = whiteAtBottom ? col : 7 - col;
   const rank = whiteAtBottom ? 7 - row : row;
   return `${String.fromCharCode(97 + file)}${rank + 1}` as Key;
@@ -71,9 +61,7 @@ export function ScreenshotImport() {
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [edited, setEdited] = useState(false);
   const [cropMode, setCropMode] = useState(false);
-  const [drag, setDrag] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
   const turnRef = useRef<Color>("white");
-  const shotRef = useRef<HTMLDivElement>(null);
 
   const reset = () => {
     setFile(null);
@@ -81,7 +69,6 @@ export function ScreenshotImport() {
     setEditor(null);
     setError(null);
     setCropMode(false);
-    setDrag(null);
     setEdited(false);
   };
 
@@ -182,40 +169,6 @@ export function ScreenshotImport() {
     openPlay(fen, orientation);
   };
 
-  // ---- manual board box (when detection fails or is off) ----
-  const toImage = (e: React.PointerEvent) => {
-    const rect = shotRef.current!.getBoundingClientRect();
-    const sx = result!.width / rect.width;
-    const sy = result!.height / rect.height;
-    return { x: Math.max(0, Math.min(result!.width, (e.clientX - rect.left) * sx)), y: Math.max(0, Math.min(result!.height, (e.clientY - rect.top) * sy)) };
-  };
-  const onDown = (e: React.PointerEvent) => {
-    if (!cropMode || !result) return;
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-    const p = toImage(e);
-    setDrag({ x0: p.x, y0: p.y, x1: p.x, y1: p.y });
-  };
-  const onMove = (e: React.PointerEvent) => {
-    if (!drag) return;
-    const p = toImage(e);
-    // keep the box square, like a chessboard
-    const side = Math.max(Math.abs(p.x - drag.x0), Math.abs(p.y - drag.y0));
-    setDrag({ ...drag, x1: drag.x0 + Math.sign(p.x - drag.x0 || 1) * side, y1: drag.y0 + Math.sign(p.y - drag.y0 || 1) * side });
-  };
-  const onUp = () => {
-    if (!drag || !file) return;
-    const x = Math.min(drag.x0, drag.x1);
-    const y = Math.min(drag.y0, drag.y1);
-    const w = Math.abs(drag.x1 - drag.x0);
-    const h = Math.abs(drag.y1 - drag.y0);
-    setDrag(null);
-    if (w >= 32 && h >= 32) void recognize(file, [x, y, w, h]);
-  };
-
-  const box = drag
-    ? [Math.min(drag.x0, drag.x1), Math.min(drag.y0, drag.y1), Math.abs(drag.x1 - drag.x0), Math.abs(drag.y1 - drag.y0)]
-    : result?.bbox;
-
   return (
     <Modal opened={open} onClose={close} size={file ? "min(1180px, 96vw)" : "lg"} centered
       title={<Group gap="xs"><IconCamera size={20} /><Text fw={600}>Import a position from a screenshot</Text></Group>}>
@@ -248,31 +201,8 @@ export function ScreenshotImport() {
                   <Button size="compact-xs" variant="default" leftSection={<IconRefresh size={12} />} onClick={reset}>Other image</Button>
                 </Group>
               </Group>
-              <div className={`shot-wrap ${cropMode ? "crop" : ""}`}>
-                <div ref={shotRef} className="shot-inner" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp}>
-                  {imgUrl && <img src={imgUrl} alt="screenshot" draggable={false} />}
-                  {result && (
-                    <svg viewBox={`0 0 ${result.width} ${result.height}`} preserveAspectRatio="none" className="shot-overlay">
-                      {box && (
-                        <g>
-                          <rect x={box[0]} y={box[1]} width={box[2]} height={box[3]} className="shot-box" vectorEffect="non-scaling-stroke" />
-                          {!drag && result.bbox && Array.from({ length: 7 }, (_, i) => (
-                            <g key={i} className="shot-grid">
-                              <line x1={box[0] + ((i + 1) * box[2]) / 8} y1={box[1]} x2={box[0] + ((i + 1) * box[2]) / 8} y2={box[1] + box[3]} vectorEffect="non-scaling-stroke" />
-                              <line x1={box[0]} y1={box[1] + ((i + 1) * box[3]) / 8} x2={box[0] + box[2]} y2={box[1] + ((i + 1) * box[3]) / 8} vectorEffect="non-scaling-stroke" />
-                            </g>
-                          ))}
-                          {!drag && result.bbox && unsure.map((u) => (
-                            <rect key={u.key} className="shot-unsure" vectorEffect="non-scaling-stroke"
-                              x={box[0] + (u.col * box[2]) / 8} y={box[1] + (u.row * box[3]) / 8} width={box[2] / 8} height={box[3] / 8} />
-                          ))}
-                        </g>
-                      )}
-                    </svg>
-                  )}
-                  {loading && <div className="shot-loading"><Loader /><Text size="sm" mt="xs">Reading the board…</Text></div>}
-                </div>
-              </div>
+              <BoardBox src={imgUrl} size={result ?? undefined} bbox={result?.bbox} unsure={unsure} cropMode={cropMode} loading={loading}
+                onSelect={(box) => file && void recognize(file, box)} />
               {error && <Alert color="red" icon={<IconAlertTriangle size={16} />}>{error}</Alert>}
               {result && !result.ok && <Alert color="orange" icon={<IconAlertTriangle size={16} />}>{result.error}</Alert>}
               {result?.ok && (

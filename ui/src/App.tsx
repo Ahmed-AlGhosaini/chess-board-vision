@@ -6,7 +6,7 @@ import { ModalsProvider } from "@mantine/modals";
 import { Notifications, notifications } from "@mantine/notifications";
 import { useHotkeys } from "@mantine/hooks";
 import {
-  IconCamera, IconChess, IconCpu, IconDatabase, IconKeyboard, IconPlus, IconPuzzle, IconRobot, IconSettings, IconX, IconFileImport, IconPlugConnectedX,
+  IconBroadcast, IconCamera, IconChess, IconCpu, IconDatabase, IconKeyboard, IconPlus, IconPuzzle, IconRobot, IconSettings, IconX, IconFileImport, IconPlugConnectedX,
 } from "@tabler/icons-react";
 import { engineSocket } from "./lib/api";
 import { themeCss } from "./lib/themes";
@@ -14,6 +14,7 @@ import { useSettings } from "./store/settings";
 import { useActiveTab, useTabs, type Page, type Tab } from "./store/tabs";
 import { useUi } from "./store/ui";
 import { ImportModal, importText } from "./components/ImportModal";
+import { LiveSetup } from "./components/LiveSetup";
 import { PlaySetup } from "./components/PlaySetup";
 import { ScreenshotImport } from "./components/ScreenshotImport";
 import { BoardView } from "./pages/BoardView";
@@ -22,7 +23,7 @@ import { EnginesPage } from "./pages/Engines";
 import { NewTabPage } from "./pages/NewTab";
 import { SettingsPage } from "./pages/Settings";
 
-const TAB_ICONS = { new: IconPlus, analysis: IconChess, play: IconRobot, puzzle: IconPuzzle } as const;
+const TAB_ICONS = { new: IconPlus, analysis: IconChess, play: IconRobot, puzzle: IconPuzzle, live: IconBroadcast } as const;
 
 function ThemeStyles() {
   const boardTheme = useSettings((s) => s.boardTheme);
@@ -131,6 +132,7 @@ function Shell() {
             <NavButton icon={IconChess} label="Boards" active={page === "boards"} onClick={() => go("boards")} />
             <NavButton icon={IconCamera} label="Import screenshot" onClick={() => ui.openScreenshot()} />
             <NavButton icon={IconFileImport} label="Import PGN / FEN" onClick={() => ui.setImportOpen(true)} />
+            <NavButton icon={IconBroadcast} label="Watch a live game" onClick={() => ui.setLiveOpen(true)} />
             <NavButton icon={IconDatabase} label="Databases" active={page === "databases"} onClick={() => go("databases")} />
             <NavButton icon={IconCpu} label="Engines" active={page === "engines"} onClick={() => go("engines")} />
           </Stack>
@@ -161,6 +163,7 @@ function Shell() {
       </AppShell.Main>
       <ScreenshotImport />
       <ImportModal />
+      <LiveSetup />
       <PlaySetup />
       <Modal opened={ui.shortcutsOpen} onClose={() => ui.setShortcutsOpen(false)} title="Keyboard shortcuts" centered>
         <Table>

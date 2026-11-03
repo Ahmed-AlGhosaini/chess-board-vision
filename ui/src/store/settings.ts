@@ -43,6 +43,7 @@ export interface Settings {
   engineSettings: Record<string, EngineSettings>;
   reportDepth: number;
   reportVariations: boolean;
+  liveDepth: number;
   explorerSource: string;
   set: (patch: Partial<Settings>) => void;
   setEngineSettings: (id: string, patch: Partial<EngineSettings>) => void;
@@ -71,6 +72,7 @@ export const useSettings = create<Settings>()(
       engineSettings: {},
       reportDepth: 16,
       reportVariations: true,
+      liveDepth: 14,
       explorerSource: "masters",
       set: (patch) => set(patch),
       setEngineSettings: (id, patch) =>

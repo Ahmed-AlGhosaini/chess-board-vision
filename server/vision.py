@@ -1,4 +1,5 @@
-"""Screenshot bytes -> recognised position, in a form the UI can edit."""
+"""Screenshot bytes -> recognised position, in a form the UI can edit;
+and frames of a screen capture -> the moves played since the last frame."""
 from __future__ import annotations
 
 import io
@@ -9,9 +10,10 @@ import cv2
 import numpy as np
 from PIL import Image, ImageOps
 
+from chessvision import FEN_LETTER
 from chessvision.board_detect import BoardNotFound, detect_board, geometry_from_bbox
 from chessvision.model import SquareClassifier
-from chessvision.recognize import recognise
+from chessvision.recognize import image_to_square, recognise
 
 from .paths import MODEL
 
@@ -62,3 +64,85 @@ def recognize_image(data: bytes, bbox: tuple[float, float, float, float] | None 
         "warnings": rec.warnings,
         "uncertain": rec.uncertain_squares(),
     }
+
+
+# ---------------------------------------------------------------- screen capture
+
+SURE = 0.8          # squares read with less confidence may disagree with a candidate position
+MAX_UNSURE_MISMATCH = 2
+
+
+def _seen(grid, confidence, white_at_bottom: bool) -> list[tuple[chess.Square, str | None, float]]:
+    out = []
+    for r in range(8):
+        for c in range(8):
+            code = grid[r][c]
+            out.append((image_to_square(r, c, white_at_bottom), FEN_LETTER[code] if code else None,
+                        float(confidence[r][c])))
+    return out
+
+
+def _mismatch(board: chess.Board, seen) -> float | None:
+    """How badly `board` disagrees with what was seen: None if a confidently read square differs."""
+    cost, unsure = 0.0, 0
+    for sq, symbol, conf in seen:
+        piece = board.piece_at(sq)
+        if (piece.symbol() if piece else None) != symbol:
+            if conf >= SURE:
+                return None
+            unsure += 1
+            cost += conf
+            if unsure > MAX_UNSURE_MISMATCH:
+                return None
+    return cost
+
+
+def match_moves(board: chess.Board, seen, max_depth: int = 2) -> list[chess.Move] | None:
+    """The shortest legal move sequence (up to `max_depth`) from `board` to the seen position.
+
+    [] = nothing changed, None = no sequence fits. Two plies cover a frame
+    that was missed between the moves of both players.
+    """
+    if _mismatch(board, seen) is not None:
+        return []
+    best: tuple[float, list[chess.Move]] | None = None
+    frontier: list[list[chess.Move]] = [[]]
+    for _ in range(max_depth):
+        nxt = []
+        for line in frontier:
+            for mv in line:
+                board.push(mv)
+            for mv in list(board.legal_moves):
+                board.push(mv)
+                cost = _mismatch(board, seen)
+                if cost is not None and (best is None or cost < best[0]):
+                    best = (cost, line + [mv])
+                nxt.append(line + [mv])
+                board.pop()
+            for _ in line:
+                board.pop()
+        if best is not None:
+            return best[1]
+        frontier = nxt
+    return None
+
+
+def track_frame(data: bytes, bbox: tuple[float, float, float, float] | None, orientation: str, fen: str,
+                max_depth: int = 2) -> dict:
+    """Read one frame of a captured board and work out what was played since `fen`.
+
+    The board's box is known already (from the first frame), so there is no
+    detection here: the frame is cut into squares and classified directly.
+    """
+    img = Image.open(io.BytesIO(data)).convert("RGB")
+    geom = geometry_from_bbox(*(bbox or (0, 0, img.width, img.height)))
+    wab = orientation != "black"
+    rec = recognise(img, geom, _classifier(), white_at_bottom=wab)
+    board = chess.Board(fen)
+    moves = match_moves(board, _seen(rec.grid, rec.confidence, wab), max_depth)
+    out = {"ok": True, "placement": rec.board.board_fen(), "uncertain": rec.uncertain_squares(SURE)}
+    if moves is None:
+        return {**out, "status": "unknown", "moves": []}
+    for mv in moves:
+        board.push(mv)
+    return {**out, "status": "moves" if moves else "same", "moves": [m.uci() for m in moves], "fen": board.fen()}

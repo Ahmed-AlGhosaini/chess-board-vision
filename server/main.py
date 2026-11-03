@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from chessvision import PIECE_CODES
 from chessvision.pieces import LILA_PIECE_URL
 
-from . import engines, games_db, vision
+from . import engines, games_db, live, vision
 from .paths import DATA, UI_DIST
 
 
@@ -80,6 +80,36 @@ async def recognize(request: Request, bbox: str | None = None, turn: str = "w", 
         raise HTTPException(400, f"Not an image the server can read ({ex})")
 
 
+@app.post("/api/vision/track")
+async def track(request: Request, fen: str, orientation: str = "white", bbox: str | None = None):
+    """One frame of a screen capture (usually just the board) -> moves played since `fen`."""
+    data = await request.body()
+    if not data:
+        raise HTTPException(400, "Empty upload")
+    box = tuple(float(v) for v in bbox.split(",")) if bbox else None
+    if box is not None and (len(box) != 4 or box[2] < 16 or box[3] < 16):
+        raise HTTPException(400, "bbox must be x,y,w,h with a size of at least 16px")
+    if orientation not in ("white", "black"):
+        raise HTTPException(400, "orientation must be white or black")
+    try:
+        return await asyncio.to_thread(vision.track_frame, data, box, orientation, fen)
+    except OSError as ex:
+        raise HTTPException(400, f"Not an image the server can read ({ex})")
+
+
+# ---------------------------------------------------------------- live games
+
+@app.get("/api/live/resolve")
+async def live_resolve(url: str, request: Request):
+    """What a Lichess link points to; for a broadcast, the round and its games."""
+    try:
+        return await asyncio.to_thread(live.resolve, url, request.headers.get("x-lichess-token"))
+    except live.LiveError as ex:
+        raise HTTPException(404, str(ex))
+    except (urllib.error.URLError, TimeoutError) as ex:
+        raise HTTPException(502, f"Network error: {ex}")
+
+
 # ---------------------------------------------------------------- engines
 
 @app.get("/api/engines")
@@ -108,18 +138,24 @@ async def bestmove(body: dict):
 
 @app.websocket("/ws")
 async def engine_socket(ws: WebSocket):
-    """Live analysis and game reports.
+    """Live analysis, game reports and live games.
 
     client -> {type: analyze, id, token, engine, fen, moves, multipv, threads, hash, options, limit}
               {type: stop|close, id}   {type: report, id, engine, fen, moves, limit}   {type: report_cancel, id}
+              {type: live_start, id, url, round?, game?, token?}   {type: live_stop, id}
+              {type: eval, id, tag, engine, fen, moves, limit, ...}   {type: eval_cancel, id}
     server -> {type: analysis, id, token, depth, nodes, nps, lines: [...], done}
               {type: report_progress|report_done|report_error|error, id, ...}
+              {type: live_game|live_move|live_status|live_end|live_error, id, ...}  (see server/live.py)
+              {type: eval_result|eval_error, id, tag, ...}
     """
     await ws.accept()
     loop = asyncio.get_running_loop()
     outbox: asyncio.Queue = asyncio.Queue()
     sessions: dict[str, engines.AnalysisSession] = {}
     reports: dict[str, engines.ReportJob] = {}
+    watches: dict[str, live.LiveWatch] = {}
+    evals: dict[str, engines.EvalQueue] = {}
 
     def send(msg: dict):
         loop.call_soon_threadsafe(outbox.put_nowait, msg)
@@ -151,6 +187,18 @@ async def engine_socket(ws: WebSocket):
                 reports[key] = engines.ReportJob(key, msg, send)
             elif kind == "report_cancel" and key in reports:
                 reports.pop(key).cancel()
+            elif kind == "live_start":
+                if key in watches:
+                    watches.pop(key).cancel()
+                watches[key] = live.LiveWatch(key, msg, send)
+            elif kind == "live_stop" and key in watches:
+                watches.pop(key).cancel()
+            elif kind == "eval":
+                if key not in evals:
+                    evals[key] = engines.EvalQueue(key, send)
+                evals[key].request(msg)
+            elif kind == "eval_cancel" and key in evals:
+                evals.pop(key).cancel()
     except WebSocketDisconnect:
         pass
     finally:
@@ -158,6 +206,10 @@ async def engine_socket(ws: WebSocket):
             s.close()
         for r in reports.values():
             r.cancel()
+        for w in watches.values():
+            w.cancel()
+        for q in evals.values():
+            q.cancel()
         sender.cancel()
 
 

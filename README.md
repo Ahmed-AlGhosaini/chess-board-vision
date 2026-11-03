@@ -69,17 +69,43 @@ cd ui && npm install && npm run build && cd ..   # once (Node 18+)
 python app.py                                     # opens http://127.0.0.1:8765
 ```
 
+```bash
+Get-NetTCPConnection -LocalPort 8765 -State Listen | ForEach-Object { Stop-Process -Id $_.OwningProcess }
+```
+
 | Area | What it does |
 |---|---|
 | Boards | Tabs; analysis board with variations, NAGs, comments, drawn arrows; PGN/FEN import & export; board editor; keyboard and mouse-wheel navigation |
 | Screenshot import | Board found and read by the pipeline below; uncertain squares outlined; manual box selection if detection fails; orientation and side to move; then analyse or play |
 | Engine | Live MultiPV analysis over a websocket, eval bar, best-move arrows, hover previews, click a line to play it; several UCI engines side by side |
+| Live games | Follow a game as it is played (Lichess game / broadcast / TV, or any shared screen); engine on the newest move, every move classified as it arrives ([details](#live-games)) |
 | Report | Whole-game analysis: accuracy, ACPL, inaccuracies/mistakes/blunders annotated, best lines added, clickable eval graph |
 | Explorer | Lichess masters / players explorer (needs a [Lichess token](#lichess-api-token-optional)) and your local databases |
 | Play | Against any engine at 8 levels, with clocks, takeback and resign; or two players on one board |
 | Puzzles | From the Lichess puzzle API, filtered by theme and difficulty, with hints |
 | Databases | SQLite per database: import PGN files, download Lichess / Chess.com games, search, position index for the explorer |
 | Engines / Settings | Add UCI engines and edit their options; board and piece themes (Lichess sets), sounds, notation, light/dark |
+
+### Live games
+
+**Watch a live game** (new-tab page or sidebar) follows a game while it is being played. The
+engine panel follows the newest move, and every move is evaluated as it arrives, so
+inaccuracies, mistakes and blunders are marked in the move list and the Report panel shows
+running accuracy and an eval graph. You can step back through the game or try variations at
+any time; **Jump to live** returns to the newest move.
+
+| Source | How |
+|---|---|
+| Lichess game | Paste a game link (`lichess.org/abcd1234`). The server reads Lichess's game stream; moves and clocks are exact. |
+| Lichess broadcast | Paste a broadcast round (or tournament) link and pick one of its games. |
+| Lichess TV | Top rated, blitz, rapid or classical; moves on to the channel's next game when one ends. |
+| Screen capture | Share a window or tab showing a 2D board (a Twitch/YouTube stream, Chess.com, any app). The board is found as in screenshot import, then read each time it changes and settles; the moves are found by matching the picture against the legal moves (two plies, if a frame was missed). |
+
+Lichess shows other people's games with a short delay, and broadcasts arrive as fast as the
+tournament relays them. Screen capture has the same limits as screenshots (2D boards seen
+straight on). If the board moves on screen, use **Find board again**. If moves were missed or a
+new game started, the tab shows *Lost track* and offers to restart from the position on
+screen. The per-move depth is set in **Settings → Analysis → Live game depth**.
 
 ### Lichess API token (optional)
 
@@ -89,6 +115,7 @@ needs a token:
 | Feature | Token needed? |
 |---|---|
 | Screenshot import, analysis, game report, play vs engine, local databases | No (all local) |
+| Live games (Lichess games, broadcasts, TV; screen capture is local) | No |
 | Puzzles | No |
 | Downloading your Lichess games | No (a token raises the rate limit) |
 | Downloading Chess.com games | No (does not use Lichess) |
@@ -199,6 +226,7 @@ Regression test after changes:
 ```bash
 python tools/make_test_screenshots.py test_screens
 python tools/e2e_test.py test_screens path/to/stockfish
+python tools/test_live_tracking.py               # live games: screen-capture move tracking, Lichess links
 ```
 
 ## Limitations and next steps

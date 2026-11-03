@@ -1,5 +1,5 @@
 import { Badge, Card, Group, SimpleGrid, Stack, Text, ThemeIcon, Title } from "@mantine/core";
-import { IconCamera, IconChess, IconFileImport, IconPuzzle, IconRobot, IconDatabase } from "@tabler/icons-react";
+import { IconBroadcast, IconCamera, IconChess, IconFileImport, IconPuzzle, IconRobot, IconDatabase } from "@tabler/icons-react";
 import type { ReactNode } from "react";
 import { newGame } from "../chess/tree";
 import { useTabs, type Tab } from "../store/tabs";
@@ -40,6 +40,9 @@ export function NewTabPage({ tab }: { tab: Tab }) {
           <Choice highlight color="teal" icon={<IconCamera size={26} />} title="Analyse a screenshot"
             text="Drop or paste a picture of any 2D board. The position is recognised, you can fix it, and the engine starts analysing. Then keep playing or exploring from there."
             onClick={() => ui.openScreenshot()} />
+          <Choice color="red" icon={<IconBroadcast size={26} />} title="Watch a live game"
+            text="Follow a game while it is played, on Lichess (games, broadcasts, TV) or from any screen you share, with the engine on every move."
+            onClick={() => ui.setLiveOpen(true)} />
           <Choice icon={<IconChess size={26} />} title="Analysis board"
             text="Empty board with engine lines, variations, annotations, opening explorer and game reports."
             onClick={() => become({ type: "analysis", title: "Analysis", game: newGame(), analysisOn: false })} />

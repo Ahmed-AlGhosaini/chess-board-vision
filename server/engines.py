@@ -1,5 +1,6 @@
 """UCI engines for the UI: a persisted registry, live analysis sessions,
-full-game reports and single best-move requests for play mode.
+full-game reports, position-by-position evaluation of live games and single
+best-move requests for play mode.
 
 python-chess's SimpleEngine runs its own event loop in a background thread,
 so everything here is plain threads; results are handed to the websocket via
@@ -12,6 +13,7 @@ import os
 import threading
 import time
 import uuid
+from collections import deque
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -277,6 +279,24 @@ class AnalysisSession:
             emit(True)
 
 
+def evaluate(eng: chess.engine.SimpleEngine, board: chess.Board, limit: chess.engine.Limit,
+             game: object = None) -> dict:
+    """Score (White's view), best move and line of one position; game-over positions need no search."""
+    outcome = board.outcome(claim_draw=False)
+    if outcome is not None:
+        if outcome.winner is None:
+            return {"score": {"cp": 0}}
+        return {"score": {"mate": 0, "winner": "white" if outcome.winner else "black"}}
+    info = eng.analyse(board, limit, game=game)
+    out: dict[str, Any] = {"score": score_json(info["score"])}
+    pv = info.get("pv") or []
+    if pv:
+        out["best"] = pv[0].uci()
+        out["pv"] = [m.uci() for m in pv[:10]]
+        out["san"] = pv_san(board, pv, 10)
+    return out
+
+
 # ---------------------------------------------------------------- game report
 
 class ReportJob:
@@ -302,27 +322,80 @@ class ReportJob:
                 for i in range(total):
                     if self.cancelled:
                         return
-                    msg = {"type": "report_progress", "id": self.key, "index": i, "total": total}
-                    outcome = board.outcome(claim_draw=False)
-                    if outcome is not None:
-                        if outcome.winner is None:
-                            msg["score"] = {"cp": 0}
-                        else:
-                            msg["score"] = {"mate": 0, "winner": "white" if outcome.winner else "black"}
-                    else:
-                        info = eng.analyse(board, limit, game=self)
-                        msg["score"] = score_json(info["score"])
-                        pv = info.get("pv") or []
-                        if pv:
-                            msg["best"] = pv[0].uci()
-                            msg["pv"] = [m.uci() for m in pv[:10]]
-                            msg["san"] = pv_san(board, pv, 10)
-                    self.send(msg)
+                    self.send({"type": "report_progress", "id": self.key, "index": i, "total": total,
+                               **evaluate(eng, board, limit, game=self)})
                     if i < len(moves):
                         board.push(moves[i])
             self.send({"type": "report_done", "id": self.key})
         except Exception as ex:
             self.send({"type": "report_error", "id": self.key, "message": f"{type(ex).__name__}: {ex}"})
+
+
+# ---------------------------------------------------------------- live games
+
+class EvalQueue:
+    """Evaluate positions of a live game in arrival order, keeping one engine open.
+
+    Runs beside the tab's AnalysisSession, so the engine lines on the current
+    move are never interrupted by the per-move evaluations.
+    """
+
+    def __init__(self, key: str, send: Send):
+        self.key, self.send = key, send
+        self.queue: deque[dict] = deque()
+        self.cancelled = False
+        self.cv = threading.Condition()
+        threading.Thread(target=self._run, daemon=True, name=f"eval-{key}").start()
+
+    def request(self, req: dict):
+        with self.cv:
+            self.queue.append(req)
+            self.cv.notify()
+
+    def cancel(self):
+        with self.cv:
+            self.cancelled = True
+            self.queue.clear()
+            self.cv.notify()
+
+    def _run(self):
+        engine: chess.engine.SimpleEngine | None = None
+        engine_id, applied = None, {}
+        try:
+            while True:
+                with self.cv:
+                    while not self.queue and not self.cancelled:
+                        self.cv.wait()
+                    if self.cancelled:
+                        return
+                    req = self.queue.popleft()
+                tag = req.get("tag")
+                try:
+                    eid = req.get("engine", "stockfish")
+                    if engine is None or eid != engine_id:
+                        if engine is not None:
+                            engine.quit()
+                        engine = chess.engine.SimpleEngine.popen_uci(registry.path(eid))
+                        engine_id, applied = eid, {}
+                    configure(engine, req, applied)
+                    board = board_from(req.get("fen"), req.get("moves"))
+                    res = evaluate(engine, board, make_limit(req.get("limit")) or chess.engine.Limit(depth=14), game=self)
+                    if not self.cancelled:
+                        self.send({"type": "eval_result", "id": self.key, "tag": tag, **res})
+                except Exception as ex:  # engine died, illegal move list, ...
+                    self.send({"type": "eval_error", "id": self.key, "tag": tag, "message": f"{type(ex).__name__}: {ex}"})
+                    if engine is not None:
+                        try:
+                            engine.close()
+                        except Exception:
+                            pass
+                    engine = None
+        finally:
+            if engine is not None:
+                try:
+                    engine.quit()
+                except Exception:
+                    pass
 
 
 # ---------------------------------------------------------------- play mode

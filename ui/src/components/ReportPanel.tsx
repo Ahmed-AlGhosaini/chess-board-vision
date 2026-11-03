@@ -21,6 +21,7 @@ export function ReportPanel({ tab, onSelect }: { tab: Tab; onSelect: (id: string
   const set = useSettings((s) => s.set);
   const r = tab.report;
   const moves = Object.keys(tab.game.nodes).length > 1;
+  const live = tab.type === "live";
 
   const counts = (white: boolean) => {
     const c: Partial<Record<MoveClass, number>> = {};
@@ -36,7 +37,16 @@ export function ReportPanel({ tab, onSelect }: { tab: Tab; onSelect: (id: string
 
   return (
     <Stack gap="sm">
-      {(!r || r.status === "error") && (
+      {live && (!r || !r.accuracy) && (
+        <Text size="sm" c="dimmed">
+          Every move of the live game is evaluated as it arrives (depth set in Settings): accuracy and move classes appear here,
+          and inaccuracies, mistakes and blunders are marked in the move list.
+        </Text>
+      )}
+      {live && r?.status === "live" && r.progress < r.total && (
+        <Text size="xs" c="dimmed">Evaluating: {r.progress} / {r.total} positions</Text>
+      )}
+      {!live && (!r || r.status === "error") && (
         <Paper withBorder p="sm" radius="md">
           <Text size="sm" mb="xs">
             Analyse every move of the main line: accuracy for both sides, inaccuracies, mistakes and blunders,
@@ -61,7 +71,7 @@ export function ReportPanel({ tab, onSelect }: { tab: Tab; onSelect: (id: string
           <Progress value={(100 * r.progress) / Math.max(1, r.total)} animated />
         </Paper>
       )}
-      {r?.status === "done" && r.accuracy && (
+      {(r?.status === "done" || r?.status === "live") && r.accuracy && (
         <Paper withBorder p="sm" radius="md">
           <SimpleGrid cols={2} mb="sm">
             {(["white", "black"] as const).map((side) => (
@@ -83,9 +93,11 @@ export function ReportPanel({ tab, onSelect }: { tab: Tab; onSelect: (id: string
               ))}
             </Table.Tbody>
           </Table>
-          <Group justify="flex-end" mt="xs">
-            <Button size="compact-xs" variant="subtle" onClick={() => startReport(tab.id)}>Run again</Button>
-          </Group>
+          {!live && (
+            <Group justify="flex-end" mt="xs">
+              <Button size="compact-xs" variant="subtle" onClick={() => startReport(tab.id)}>Run again</Button>
+            </Group>
+          )}
         </Paper>
       )}
       <EvalGraph game={tab.game} onSelect={onSelect} />

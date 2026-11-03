@@ -4,7 +4,7 @@ import { newGame, type GameState } from "../chess/tree";
 import type { Color } from "../chess/position";
 import type { MoveClass } from "../chess/eval";
 
-export type TabType = "new" | "analysis" | "play" | "puzzle";
+export type TabType = "new" | "analysis" | "play" | "puzzle" | "live";
 
 export interface PlayState {
   engine: string;
@@ -32,8 +32,22 @@ export interface PuzzleState {
   history: { id: string; rating: number; solved: boolean }[];
 }
 
+export type LiveStatus = "connecting" | "live" | "reconnecting" | "ended" | "lost-sync" | "stopped" | "error";
+
+export interface LiveState {
+  source: "lichess" | "capture";
+  url?: string; // lichess: the link that was opened
+  round?: string; // lichess broadcast round and game
+  game?: string;
+  status: LiveStatus;
+  error?: string;
+  reason?: string; // how the game ended
+  clockAt?: number; // Date.now() when the last move arrived, for the running clock
+}
+
 export interface Report {
-  status: "running" | "done" | "error";
+  /** "live": accuracy and move classes of a game that is still being played */
+  status: "running" | "done" | "error" | "live";
   progress: number;
   total: number;
   error?: string;
@@ -53,6 +67,7 @@ export interface Tab {
   play?: PlayState;
   puzzle?: PuzzleState;
   report?: Report;
+  live?: LiveState;
   source?: string; // e.g. "screenshot"
 }
 
@@ -111,8 +126,12 @@ export const useTabs = create<TabsStore>()(
       name: "chessvision-tabs",
       version: 1,
       partialize: (s) => ({
-        // a report that was still running when the page closed cannot resume
-        tabs: s.tabs.map((t) => (t.report?.status === "running" ? { ...t, report: undefined } : t)),
+        // a report that was still running when the page closed cannot resume, nor can a live watch
+        tabs: s.tabs.map((t) => ({
+          ...t,
+          report: t.report?.status === "running" ? undefined : t.report,
+          live: t.live && !["ended", "error"].includes(t.live.status) ? { ...t.live, status: "stopped" as const } : t.live,
+        })),
         active: s.active,
       }),
     },

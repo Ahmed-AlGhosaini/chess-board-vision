@@ -87,6 +87,9 @@ export function SettingsPage() {
               <NumberInput size="xs" w={90} min={6} max={30} value={s.reportDepth} onChange={(v) => s.set({ reportDepth: Number(v) || 16 })} />
             </Row>
             <Row label="Add best lines to reports"><Switch checked={s.reportVariations} onChange={(e) => s.set({ reportVariations: e.currentTarget.checked })} /></Row>
+            <Row label="Live game depth" description="Search depth for each move of a live game, to classify it">
+              <NumberInput size="xs" w={90} min={6} max={30} value={s.liveDepth} onChange={(v) => s.set({ liveDepth: Number(v) || 14 })} />
+            </Row>
           </Card>
           <Card withBorder radius="md">
             <Title order={4} mb="xs">Lichess</Title>

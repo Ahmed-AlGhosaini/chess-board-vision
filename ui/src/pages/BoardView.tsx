@@ -26,6 +26,7 @@ import { EnginePanel } from "../components/EnginePanel";
 import { EvalBar } from "../components/EvalBar";
 import { ExplorerPanel } from "../components/ExplorerPanel";
 import { InfoPanel, downloadText, gameFileName } from "../components/InfoPanel";
+import { LivePanel } from "../components/LivePanel";
 import { MiniBoardPreview, type Preview } from "../components/MiniBoard";
 import { MoveList } from "../components/MoveList";
 import { PlayerBar } from "../components/PlayerBar";
@@ -210,8 +211,18 @@ function BoardLayout({ tab, play }: { tab: Tab; play?: ReturnType<typeof usePlay
     notifications.show({ message: "Line copied as PGN" });
   };
 
-  const whiteName = g.headers.White && g.headers.White !== "?" ? g.headers.White : "White";
-  const blackName = g.headers.Black && g.headers.Black !== "?" ? g.headers.Black : "Black";
+  const isLive = tab.type === "live";
+  const playerName = (side: "White" | "Black") => {
+    const name = g.headers[side] && g.headers[side] !== "?" ? g.headers[side] : side;
+    if (!isLive) return name;
+    const title = g.headers[`${side}Title`];
+    const elo = g.headers[`${side}Elo`];
+    return `${title ? title + " " : ""}${name}${elo && elo !== "?" ? ` (${elo})` : ""}`;
+  };
+  const whiteName = playerName("White");
+  const blackName = playerName("Black");
+  // a live game's clock runs for the side to move, while the newest move is shown
+  const liveTail = isLive && tab.live?.status === "live" && !!tab.live.clockAt && !node.children.length && !!node.parent;
   const top: Color = tab.orientation === "white" ? "black" : "white";
   const clockFor = (c: Color) => {
     if (play && tab.play?.clock) return play.times[c];
@@ -220,7 +231,8 @@ function BoardLayout({ tab, play }: { tab: Tab; play?: ReturnType<typeof usePlay
   };
   const bar = (c: Color) => (
     <PlayerBar color={c} name={c === "white" ? whiteName : blackName} fen={node.fen} clockMs={clockFor(c)}
-      running={!!play && playing && play.turn === c} isEngine={tab.play?.engineColor === c} />
+      running={!!play && playing && play.turn === c} isEngine={tab.play?.engineColor === c}
+      tickingSince={liveTail && turnOf(node.fen) === c ? tab.live!.clockAt : undefined} />
   );
 
   const showSidePanels = !playing && !(tab.type === "puzzle" && (!puzzle || solving || puzzle.status === "loading"));
@@ -288,6 +300,7 @@ function BoardLayout({ tab, play }: { tab: Tab; play?: ReturnType<typeof usePlay
 
       <div className="side-column">
         {play && <PlayPanel tab={tab} controls={play} />}
+        {isLive && tab.live && <LivePanel tab={tab} />}
         {tab.type === "puzzle" && <PuzzlePanel tab={tab} />}
         {showSidePanels && (
           <Tabs value={panel} onChange={setPanel} className="side-tabs" keepMounted={false}>
