@@ -65,7 +65,7 @@ async def _fetch(url: str, headers: dict | None = None, timeout: int = 20) -> Re
 # ---------------------------------------------------------------- vision
 
 @app.post("/api/vision/recognize")
-async def recognize(request: Request, bbox: str | None = None, turn: str = "w", orientation: str = "auto"):
+async def recognize(request: Request, bbox: str | None = None, turn: str = "auto", orientation: str = "auto"):
     data = await request.body()
     if not data:
         raise HTTPException(400, "Empty upload")
@@ -74,6 +74,8 @@ async def recognize(request: Request, bbox: str | None = None, turn: str = "w", 
         raise HTTPException(400, "bbox must be x,y,w,h with a size of at least 16px")
     if orientation not in ("auto", "white", "black"):
         raise HTTPException(400, "orientation must be auto, white or black")
+    if turn not in ("auto", "w", "b"):
+        raise HTTPException(400, "turn must be auto, w or b")
     try:
         return await asyncio.to_thread(vision.recognize_image, data, box, turn, orientation)
     except OSError as ex:

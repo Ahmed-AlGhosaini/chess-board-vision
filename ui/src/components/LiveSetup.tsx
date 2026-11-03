@@ -15,7 +15,7 @@ import { useTabs, type LiveState } from "../store/tabs";
 import { useUi } from "../store/ui";
 import { BoardBox } from "./BoardBox";
 import { BoardEditor, editorToFen, possibleCastling, START_PLACEMENT, type EditorState } from "./BoardEditor";
-import { gridToPlacement, squareAt, UNSURE } from "./ScreenshotImport";
+import { detectedTurn, gridToPlacement, squareAt, squareHighlights, TurnNote, UNSURE } from "./ScreenshotImport";
 
 interface Resolved {
   kind: "game" | "tv" | "broadcast";
@@ -168,7 +168,9 @@ function CaptureForm({ onDone }: { onDone: () => void }) {
         const wab = !!r.whiteAtBottom;
         setWhiteAtBottom(wab);
         const placement = gridToPlacement(r.grid, wab);
-        setEditor((e) => ({ placement, turn: placement === START_PLACEMENT ? "white" : (e?.turn ?? "white"), castling: possibleCastling(placement) }));
+        setEditor((e) => ({
+          placement, turn: placement === START_PLACEMENT ? "white" : (detectedTurn(r) ?? e?.turn ?? "white"), castling: possibleCastling(placement),
+        }));
         setCropMode(false);
       } else {
         setEditor(null);
@@ -223,7 +225,7 @@ function CaptureForm({ onDone }: { onDone: () => void }) {
     }));
     return out;
   }, [result, whiteAtBottom]);
-  const highlight = useMemo(() => new Map<Key, string>(unsure.map((u) => [u.key, "uncertain"])), [unsure]);
+  const highlight = useMemo(() => squareHighlights(result, unsure, whiteAtBottom), [result, unsure, whiteAtBottom]);
 
   const fen = editor ? editorToFen(editor) : null;
   const problem = fen ? fenError(fen) : null;
@@ -292,8 +294,9 @@ function CaptureForm({ onDone }: { onDone: () => void }) {
             <div className="editor-holder">
               <BoardEditor value={editor} orientation={whiteAtBottom ? "white" : "black"} highlight={highlight} onChange={setEditor} />
             </div>
+            {editor.placement !== START_PLACEMENT && <TurnNote result={result} turn={editor.turn} whiteAtBottom={whiteAtBottom} />}
             <Text size="xs" c="dimmed">
-              Check the position and pick whose move it is. From here on, every change on screen is matched against the legal moves.
+              Check the position and whose move it is. From here on, every change on screen is matched against the legal moves.
             </Text>
             {problem && <Text size="xs" c="red">{problem}</Text>}
             <Group>

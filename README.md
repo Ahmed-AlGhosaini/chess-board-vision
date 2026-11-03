@@ -60,7 +60,8 @@ Stockfish, depth 18 (eval from White's side):
 
 A local chess GUI in the style of [En Croissant](https://github.com/franciscoBSalgueiro/en-croissant),
 with screenshot import built in: drop or paste (Ctrl+V) a picture of a board, fix any
-misread square, pick the side to move, and the engine starts analysing. From there you
+misread square, check the side to move (read from the highlighted last move when the
+board shows one), and the engine starts analysing. From there you
 can keep playing moves and analysing variations, or play the engine from that position.
 
 ```bash
@@ -76,7 +77,7 @@ Get-NetTCPConnection -LocalPort 8765 -State Listen | ForEach-Object { Stop-Proce
 | Area | What it does |
 |---|---|
 | Boards | Tabs; analysis board with variations, NAGs, comments, drawn arrows; PGN/FEN import & export; board editor; keyboard and mouse-wheel navigation |
-| Screenshot import | Board found and read by the pipeline below; uncertain squares outlined; manual box selection if detection fails; orientation and side to move; then analyse or play |
+| Screenshot import | Board found and read by the pipeline below; uncertain squares outlined; manual box selection if detection fails; orientation; side to move read from the last-move highlight, or picked by hand when there is none; then analyse or play |
 | Engine | Live MultiPV analysis over a websocket, eval bar, best-move arrows, hover previews, click a line to play it; several UCI engines side by side |
 | Live games | Follow a game as it is played (Lichess game / broadcast / TV, or any shared screen); engine on the newest move, every move classified as it arrives ([details](#live-games)) |
 | Report | Whole-game analysis: accuracy, ACPL, inaccuracies/mistakes/blunders annotated, best lines added, clickable eval graph |
@@ -145,8 +146,11 @@ screenshot ──► 1. find board ──► 2. classify 64 squares ──► 3.
 | 4. Analyse | `engine.py` | Stockfish over UCI with MultiPV 3. Lines are taken from the deepest iteration in which all three finished, so the ranking is consistent (a time-limited search otherwise mixes depths). |
 | 5. Draw | `draw.py` | Anti-aliased arrows in Lichess brush colours (green/blue/orange = 1st/2nd/3rd), number badges that dodge each other, and a legend with evals and lines. |
 
-The side to move cannot be read from a still image, so pass `--turn b` when
-it is Black's move (White is assumed otherwise). En-passant rights are never set.
+The side to move is read from the last-move highlight that most sites draw
+(`highlight.py`): the two squares whose background differs from the other light or
+dark squares are the last move, and the piece now on one of them shows who played
+it. Without a highlight White is assumed; pass `--turn b` / `--turn w` to override.
+En-passant rights are never set.
 
 ## Results
 
@@ -175,7 +179,7 @@ on your PATH, set `STOCKFISH_PATH`, or pass `--engine C:\path\to\stockfish.exe`.
 ## Usage
 
 ```bash
-python analyze.py shot.png                       # white to move, orientation auto
+python analyze.py shot.png                       # side to move and orientation auto
 python analyze.py shot.png --turn b              # black to move
 python analyze.py shot.png --orientation black   # force: black at the bottom
 python analyze.py shot.png --bbox 380,110,600,600   # skip detection (x,y,w,h)
@@ -234,8 +238,8 @@ python tools/test_live_tracking.py               # live games: screen-capture mo
 * **2D, axis-aligned digital boards only.** Photos of physical boards need a
   different localiser (corner/keypoint detection + homography) and real
   training images; the classifier and everything after it would carry over.
-* **Side to move** must be given. It could be inferred from the last-move
-  highlight: the piece standing on the highlighted destination square just moved.
+* **Side to move** is only known when the board highlights the last move; a
+  bare diagram (book, puzzle, editor) still needs it picked by hand.
 * **3D or unusual piece sets** outside the training mix may confuse the
   classifier. Add the set name to `DEFAULT_SETS` in `pieces.py` (or put your own
   PNGs in `assets/pieces/<name>/wK.png` …) and retrain.

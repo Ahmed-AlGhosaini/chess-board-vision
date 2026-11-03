@@ -22,6 +22,8 @@ export interface VisionResult {
   confidence?: number[][];
   whiteAtBottom?: boolean;
   warnings?: string[];
+  turn?: "w" | "b" | null; // read off the highlighted last move; null if the board shows none
+  lastMove?: [number, number][] | null; // picture row/col of the highlighted squares
 }
 
 interface TrackResult {

@@ -12,8 +12,9 @@ from PIL import Image, ImageOps
 
 from chessvision import FEN_LETTER
 from chessvision.board_detect import BoardNotFound, detect_board, geometry_from_bbox
+from chessvision.highlight import detect_last_move
 from chessvision.model import SquareClassifier
-from chessvision.recognize import image_to_square, recognise
+from chessvision.recognize import STATUS_TEXT, image_to_square, recognise
 
 from .paths import MODEL
 
@@ -30,12 +31,14 @@ def _classifier() -> SquareClassifier:
 
 
 def recognize_image(data: bytes, bbox: tuple[float, float, float, float] | None = None,
-                    turn: str = "w", orientation: str = "auto") -> dict:
+                    turn: str = "auto", orientation: str = "auto") -> dict:
     """Locate the board (or use `bbox`), classify the squares, build a FEN.
 
     The grid is returned in picture layout (row 0 = top of the image) together
     with per-square confidence, so the UI can re-map it if the user flips the
-    orientation and can flag squares worth double-checking.
+    orientation and can flag squares worth double-checking. With turn="auto",
+    the side to move is read off the highlighted last move; `turn` in the
+    result is what was detected (None when the board shows no last move).
     """
     img = ImageOps.exif_transpose(Image.open(io.BytesIO(data))).convert("RGB")
     if bbox:
@@ -51,6 +54,10 @@ def recognize_image(data: bytes, bbox: tuple[float, float, float, float] | None 
     wab = {"auto": None, "white": True, "black": False}[orientation]
     rec = recognise(img, geom, _classifier(), turn=chess.BLACK if turn == "b" else chess.WHITE,
                     white_at_bottom=wab)
+    last = detect_last_move(img, geom, rec.grid, rec.white_at_bottom)
+    if turn == "auto" and last is not None and rec.board.turn != last.turn:
+        rec.board.turn = last.turn
+        rec.warnings = [text for flag, text in STATUS_TEXT.items() if rec.board.status() & flag]
     x, y, w, h = geom.bbox
     return {
         "ok": True,
@@ -63,6 +70,8 @@ def recognize_image(data: bytes, bbox: tuple[float, float, float, float] | None 
         "fen": rec.board.fen(),
         "warnings": rec.warnings,
         "uncertain": rec.uncertain_squares(),
+        "turn": None if last is None else ("w" if last.turn else "b"),
+        "lastMove": None if last is None else [list(sq) for sq in last.squares],
     }
 
 

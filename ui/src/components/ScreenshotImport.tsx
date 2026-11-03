@@ -46,6 +46,41 @@ export function squareAt(row: number, col: number, whiteAtBottom: boolean): Key 
   return `${String.fromCharCode(97 + file)}${rank + 1}` as Key;
 }
 
+/** Side to move as detected from the highlighted last move, if any. */
+export const detectedTurn = (r: VisionResult | null): Color | null =>
+  r?.turn ? (r.turn === "w" ? "white" : "black") : null;
+
+/** Editor highlights: uncertain squares and the detected last move. */
+export function squareHighlights(result: VisionResult | null, unsure: { key: Key }[], whiteAtBottom: boolean): Map<Key, string> {
+  const m = new Map<Key, string>();
+  result?.lastMove?.forEach(([r, c]) => m.set(squareAt(r, c, whiteAtBottom), "last-move"));
+  unsure.forEach((u) => m.set(u.key, m.has(u.key) ? "last-move uncertain" : "uncertain"));
+  return m;
+}
+
+/** Explains where the side to move came from, or asks the user to pick it. */
+export function TurnNote({ result, turn, whiteAtBottom }: { result: VisionResult | null; turn: Color; whiteAtBottom: boolean }) {
+  const detected = detectedTurn(result);
+  const name = (c: Color) => (c === "white" ? "White" : "Black");
+  if (!detected) {
+    return (
+      <Alert variant="light" color="orange" p="xs">
+        <Text size="xs">No highlighted last move on the board, so whose turn it is cannot be told. Pick <b>White to move</b> or <b>Black to move</b> above.</Text>
+      </Alert>
+    );
+  }
+  const squares = (result?.lastMove ?? []).map(([r, c]) => squareAt(r, c, whiteAtBottom)).join(" and ");
+  return (
+    <Alert variant="light" color={turn === detected ? "green" : "gray"} p="xs">
+      <Text size="xs">
+        {turn === detected
+          ? <><b>{name(detected)} to move</b>: read from the highlighted last move ({squares}). Change it above if that is wrong.</>
+          : <>The highlighted last move ({squares}) suggests <b>{name(detected)} to move</b>, but you picked {name(turn)}.</>}
+      </Text>
+    </Alert>
+  );
+}
+
 export function ScreenshotImport() {
   const { open, file: initialFile } = useUi((s) => s.screenshot);
   const close = useUi((s) => s.closeScreenshot);
@@ -83,7 +118,7 @@ export function ScreenshotImport() {
         const wab = !!r.whiteAtBottom;
         setWhiteAtBottom(wab);
         const placement = gridToPlacement(r.grid, wab);
-        setEditor({ placement, turn: turnRef.current, castling: possibleCastling(placement) });
+        setEditor({ placement, turn: detectedTurn(r) ?? turnRef.current, castling: possibleCastling(placement) });
         setEdited(false);
         setCropMode(false);
       } else {
@@ -148,7 +183,7 @@ export function ScreenshotImport() {
     return out;
   }, [result, whiteAtBottom]);
 
-  const highlight = useMemo(() => new Map<Key, string>(unsure.map((u) => [u.key, "uncertain"])), [unsure]);
+  const highlight = useMemo(() => squareHighlights(result, unsure, whiteAtBottom), [result, unsure, whiteAtBottom]);
 
   const fen = editor ? editorToFen(editor) : null;
   const problem = fen ? fenError(fen) : null;
@@ -238,9 +273,7 @@ export function ScreenshotImport() {
                       setEditor(s);
                     }} />
                 </div>
-                <Alert variant="light" color={editor.turn === "white" ? "gray" : "dark"} p="xs">
-                  <Text size="xs">A screenshot cannot show whose turn it is. Pick <b>White to move</b> or <b>Black to move</b> above before analysing.</Text>
-                </Alert>
+                <TurnNote result={result} turn={editor.turn} whiteAtBottom={whiteAtBottom} />
                 <Group gap="xs">
                   <Button leftSection={<IconSearch size={16} />} onClick={analyze} disabled={!!problem}>Analyse position</Button>
                   <Button variant="light" leftSection={<IconPlayerPlay size={16} />} onClick={play} disabled={!!problem}>Play from here</Button>

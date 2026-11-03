@@ -19,6 +19,7 @@ from PIL import Image
 from chessvision.board_detect import BoardNotFound, detect_board, geometry_from_bbox
 from chessvision.draw import annotate
 from chessvision.engine import find_engine, top_moves
+from chessvision.highlight import detect_last_move
 from chessvision.model import SquareClassifier
 from chessvision.recognize import recognise
 
@@ -48,7 +49,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("image")
     ap.add_argument("--turn", choices=["w", "b"], default=None,
-                    help="side to move (cannot be read from a picture; default: white)")
+                    help="side to move (default: read from the highlighted last move, else white)")
     ap.add_argument("--orientation", choices=["auto", "white", "black"], default="auto",
                     help="which side is at the bottom of the picture")
     ap.add_argument("--bbox", help="skip detection: x,y,w,h of the board in pixels")
@@ -79,6 +80,9 @@ def main():
     wab = {"auto": None, "white": True, "black": False}[args.orientation]
     rec = recognise(img, geom, SquareClassifier(args.model), turn=turn, white_at_bottom=wab)
     board = rec.board
+    last = detect_last_move(img, geom, rec.grid, rec.white_at_bottom) if args.turn is None else None
+    if last is not None:
+        board.turn = last.turn
 
     # letters (uppercase = White), drawn the way the screenshot shows the board
     shown = board if rec.white_at_bottom else board.transform(chess.flip_vertical).transform(chess.flip_horizontal)
@@ -89,8 +93,10 @@ def main():
     print(f"Lichess:  https://lichess.org/analysis/standard/{board.fen().replace(' ', '_')}")
     print(f"View:     {'white' if rec.white_at_bottom else 'black'} at the bottom"
           + (" (auto-detected)" if wab is None else ""))
-    if args.turn is None:
-        print("To move:  white (assumed - pass --turn b if it is Black's move)")
+    if last is not None:
+        print(f"To move:  {'white' if last.turn else 'black'} (from the highlighted last move)")
+    elif args.turn is None:
+        print("To move:  white (assumed - no highlighted last move; pass --turn b if it is Black's move)")
     unsure = rec.uncertain_squares()
     if unsure:
         print(f"Unsure about: {', '.join(unsure)} - check these squares")
