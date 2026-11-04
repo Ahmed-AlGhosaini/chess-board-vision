@@ -1,0 +1,24 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="color-scheme" content="light dark">
+  <style>
+    body { width: 280px; margin: 0; padding: 12px; font: 13px system-ui, sans-serif; }
+    label { display: block; }
+    .switch { font-weight: 600; }
+    #status { margin: 10px 0; line-height: 1.4; }
+    input[type="url"] { width: 100%; box-sizing: border-box; margin-top: 4px; padding: 4px 6px; }
+    .address { font-size: 12px; opacity: .8; }
+    .error { color: #e03131; }
+  </style>
+</head>
+<body>
+  <label class="switch"><input id="enabled" type="checkbox"> Send Lichess boards to chessvision</label>
+  <p id="status"></p>
+  <label class="address">App address
+    <input id="app" type="url" spellcheck="false">
+  </label>
+  <script src="popup.js"></script>
+</body>
+</html>

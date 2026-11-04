@@ -222,7 +222,7 @@ function BoardLayout({ tab, play }: { tab: Tab; play?: ReturnType<typeof usePlay
   const whiteName = playerName("White");
   const blackName = playerName("Black");
   // a live game's clock runs for the side to move, while the newest move is shown
-  const liveTail = isLive && tab.live?.status === "live" && !!tab.live.clockAt && !node.children.length && !!node.parent;
+  const liveTail = isLive && tab.live?.source !== "page" && tab.live?.status === "live" && !!tab.live.clockAt && !node.children.length && !!node.parent;
   const top: Color = tab.orientation === "white" ? "black" : "white";
   const clockFor = (c: Color) => {
     if (play && tab.play?.clock) return play.times[c];

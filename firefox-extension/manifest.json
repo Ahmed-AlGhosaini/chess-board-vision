@@ -1,0 +1,24 @@
+{
+  "manifest_version": 2,
+  "name": "chessvision: follow Lichess boards",
+  "version": "1.0.0",
+  "description": "Sends the board on any Lichess page to the chessvision app running on this computer, live.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "lichess-follow@chessvision.local",
+      "strict_min_version": "109.0",
+      "data_collection_permissions": { "required": ["none"] }
+    }
+  },
+  "icons": { "48": "icon.svg", "96": "icon.svg" },
+  "permissions": ["storage", "tabs", "http://127.0.0.1/*", "http://localhost/*"],
+  "background": { "scripts": ["background.js"], "persistent": true },
+  "content_scripts": [
+    { "matches": ["https://lichess.org/*"], "js": ["content.js"], "run_at": "document_end" }
+  ],
+  "browser_action": {
+    "default_title": "chessvision",
+    "default_icon": "icon.svg",
+    "default_popup": "popup.html"
+  }
+}

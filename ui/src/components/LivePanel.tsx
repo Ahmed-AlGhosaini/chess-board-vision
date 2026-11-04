@@ -4,6 +4,7 @@ import { notifications } from "@mantine/notifications";
 import { IconFocus2, IconPlayerStop, IconPlayerTrackNext, IconRefresh, IconScreenShare } from "@tabler/icons-react";
 import { fenError, type Color } from "../chess/position";
 import { captureCanvas, redetect, resumeCapture, unmatchedPlacement } from "../live/capture";
+import { pageKnown, resumePage } from "../live/pageWatch";
 import { isWatching, lastId, patchLive, resetGame, startLichessWatch, stopWatch } from "../live/watch";
 import { useTabs, type LiveStatus, type Tab } from "../store/tabs";
 import { editorToFen, possibleCastling } from "./BoardEditor";
@@ -30,6 +31,7 @@ export function LivePanel({ tab }: { tab: Tab }) {
 
   const reconnect = async () => {
     if (live.source === "lichess") return startLichessWatch(tab.id);
+    if (live.source === "page") return void resumePage(tab.id);
     setBusy(true);
     try {
       const err = await resumeCapture(tab.id);
@@ -50,6 +52,8 @@ export function LivePanel({ tab }: { tab: Tab }) {
               leftSection={live.status === "live" ? <span className="live-dot" /> : undefined}>{st.label}</Badge>
             {live.source === "capture" ? (
               <Text size="sm" c="dimmed">Screen capture</Text>
+            ) : live.source === "page" ? (
+              live.url ? <Anchor size="sm" href={live.url} target="_blank" truncate>Lichess page</Anchor> : <Text size="sm" c="dimmed">Lichess page</Text>
             ) : (
               <Anchor size="sm" href={liveLink(live.url, live.game)} target="_blank" truncate>
                 {live.url?.includes("/tv") ? "Lichess TV" : "Lichess"}
@@ -57,7 +61,7 @@ export function LivePanel({ tab }: { tab: Tab }) {
             )}
           </Group>
           <Group gap={4} wrap="nowrap">
-            {!atEnd && (
+            {!atEnd && live.source !== "page" && (
               <Button size="compact-xs" variant="light" leftSection={<IconPlayerTrackNext size={12} />}
                 onClick={() => updateGame(tab.id, (x) => ({ ...x, cursor: lastId(x) }))}>
                 Jump to live
@@ -65,16 +69,19 @@ export function LivePanel({ tab }: { tab: Tab }) {
             )}
             {watching ? (
               <Button size="compact-xs" variant="default" leftSection={<IconPlayerStop size={12} />} onClick={() => stopWatch(tab.id)}>Stop</Button>
-            ) : live.status !== "ended" && (
+            ) : live.status !== "ended" && (live.source !== "page" || pageKnown(live.session)) && (
               <Button size="compact-xs" leftSection={live.source === "capture" ? <IconScreenShare size={12} /> : <IconRefresh size={12} />}
                 loading={busy} onClick={reconnect}>
-                {live.source === "capture" ? "Share screen again" : "Reconnect"}
+                {live.source === "capture" ? "Share screen again" : live.source === "page" ? "Follow again" : "Reconnect"}
               </Button>
             )}
           </Group>
         </Group>
         {live.status === "ended" && (
           <Text size="sm"><b>{g.headers.Result}</b>{live.reason ? ` · ${live.reason}` : ""}</Text>
+        )}
+        {live.source === "page" && !watching && !live.error && !pageKnown(live.session) && (
+          <Text size="xs" c="dimmed">Open a board on Lichess in that Firefox tab to follow it again.</Text>
         )}
         {live.error && <Alert color={live.status === "error" ? "red" : "orange"} p="xs">{live.error}</Alert>}
         {live.status === "lost-sync" && <LostTrack tab={tab} />}

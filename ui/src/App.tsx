@@ -9,11 +9,12 @@ import {
   IconBroadcast, IconCamera, IconChess, IconCpu, IconDatabase, IconKeyboard, IconPlus, IconPuzzle, IconRobot, IconSettings, IconX, IconFileImport, IconPlugConnectedX,
 } from "@tabler/icons-react";
 import { engineSocket } from "./lib/api";
+import { onPagePush } from "./live/pageWatch";
 import { themeCss } from "./lib/themes";
 import { useSettings } from "./store/settings";
 import { useActiveTab, useTabs, type Page, type Tab } from "./store/tabs";
 import { useUi } from "./store/ui";
-import { ImportModal, importText } from "./components/ImportModal";
+import { ImportModal, importAny } from "./components/ImportModal";
 import { LiveSetup } from "./components/LiveSetup";
 import { PlaySetup } from "./components/PlaySetup";
 import { ScreenshotImport } from "./components/ScreenshotImport";
@@ -78,7 +79,7 @@ function TabBar() {
 const SHORTCUTS: [string, string][] = [
   ["← / →", "Previous / next move"], ["↑ / ↓", "Switch between variations"], ["Home / End", "First / last move"],
   ["Mouse wheel on board", "Step through moves"], ["F", "Flip the board"], ["E", "Start / stop the engine"],
-  ["Ctrl+V", "Paste a screenshot, PGN or FEN"], ["Ctrl+Backspace", "Delete the current move"],
+  ["Ctrl+V", "Paste a screenshot, PGN, FEN or Lichess link"], ["Ctrl+Backspace", "Delete the current move"],
   ["Right-click drag", "Draw arrows and circles (Shift / Alt / Ctrl for colours)"], ["?", "This help"],
 ];
 
@@ -110,14 +111,20 @@ function Shell() {
       }
       const text = e.clipboardData?.getData("text/plain");
       if (text?.trim()) {
-        const r = importText(text);
-        if (!r.opened) notifications.show({ color: "orange", message: r.error });
-        else if (r.error) notifications.show({ message: r.error });
+        void importAny(text).then((r) => {
+          if (!r.opened) notifications.show({ color: "orange", message: r.error });
+          else if (r.error) notifications.show({ message: r.error });
+        });
       }
     };
     window.addEventListener("paste", onPaste);
     return () => window.removeEventListener("paste", onPaste);
   }, [ui]);
+
+  // boards sent by the browser extension
+  useEffect(() => engineSocket.subscribe("push", (msg) => {
+    if (msg.type === "push") onPagePush(msg);
+  }), []);
 
   useHotkeys([["shift+?", () => ui.setShortcutsOpen(true)]]);
 

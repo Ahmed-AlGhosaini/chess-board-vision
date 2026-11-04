@@ -4,3 +4,4 @@ engine
 data/
 ui/node_modules/
 ui/dist/
+firefox-extension/dist/

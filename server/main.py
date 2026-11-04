@@ -9,14 +9,16 @@ import urllib.parse
 import urllib.request
 from contextlib import asynccontextmanager
 
+import chess
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 from chessvision import PIECE_CODES
 from chessvision.pieces import LILA_PIECE_URL
 
-from . import engines, games_db, live, vision
+from . import engines, games_db, links, live, vision
 from .paths import DATA, UI_DIST
 
 
@@ -150,6 +152,7 @@ async def engine_socket(ws: WebSocket):
               {type: report_progress|report_done|report_error|error, id, ...}
               {type: live_game|live_move|live_status|live_end|live_error, id, ...}  (see server/live.py)
               {type: eval_result|eval_error, id, tag, ...}
+              {type: push, id: "push", session, seq, fen, orientation, url, stop}  (browser extension, see /push/live)
     """
     await ws.accept()
     loop = asyncio.get_running_loop()
@@ -161,6 +164,8 @@ async def engine_socket(ws: WebSocket):
 
     def send(msg: dict):
         loop.call_soon_threadsafe(outbox.put_nowait, msg)
+
+    push_targets.append(send)
 
     async def pump():
         while True:
@@ -212,6 +217,7 @@ async def engine_socket(ws: WebSocket):
             w.cancel()
         for q in evals.values():
             q.cancel()
+        push_targets.remove(send)
         sender.cancel()
 
 
@@ -314,6 +320,17 @@ async def lichess_game(gid: str, request: Request, masters: bool = False):
     return await _fetch(url, {**_lichess_headers(request), "Accept": "application/x-chess-pgn"})
 
 
+@app.get("/api/lichess/load")
+async def lichess_load(url: str, request: Request):
+    """A Lichess game, study, analysis or puzzle link -> its PGN (or FEN), see server/links.py."""
+    try:
+        return await asyncio.to_thread(links.load, url, request.headers.get("x-lichess-token"))
+    except LookupError as ex:
+        raise HTTPException(404, str(ex))
+    except (urllib.error.URLError, TimeoutError) as ex:
+        raise HTTPException(502, f"Network error: {ex}")
+
+
 @app.get("/api/lichess/puzzle")
 async def lichess_puzzle(request: Request, angle: str = "", difficulty: str = ""):
     q = urllib.parse.urlencode({k: v for k, v in (("angle", angle), ("difficulty", difficulty)) if v})
@@ -323,6 +340,41 @@ async def lichess_puzzle(request: Request, angle: str = "", difficulty: str = ""
 @app.get("/api/lichess/puzzle/daily")
 async def lichess_daily(request: Request):
     return await _fetch("https://lichess.org/api/puzzle/daily", _lichess_headers(request))
+
+
+# ---------------------------------------------------------------- browser extension
+
+push_targets: list = []  # send() of every open UI connection, newest last
+
+
+class PagePush(BaseModel):
+    session: str
+    seq: int
+    fen: str
+    orientation: str = "white"
+    url: str = ""
+    stop: bool = False
+
+
+@app.post("/push/live")
+async def push_live(push: PagePush, request: Request):
+    """A board on a Lichess page, sent by firefox-extension/. Answers 503 while no UI is open.
+    Web pages can send requests here too, but always with their own Origin: only the extension gets through."""
+    origin = request.headers.get("origin", "")
+    if origin and not origin.startswith("moz-extension://"):
+        raise HTTPException(403, "Only the browser extension may send boards")
+    try:
+        if len(push.fen) > 100 or not re.fullmatch(r"[a-z0-9]{1,16}", push.session):
+            raise ValueError
+        chess.Board(push.fen)
+    except ValueError:
+        raise HTTPException(400, "Not a readable position")
+    if not push_targets:
+        raise HTTPException(503, "chessvision is not open")
+    push_targets[-1]({"type": "push", "id": "push", "session": push.session, "seq": push.seq, "fen": push.fen,
+                      "orientation": "black" if push.orientation == "black" else "white", "stop": push.stop,
+                      "url": push.url[:500] if push.url.startswith(("https://", "http://")) else ""})
+    return Response(status_code=204)
 
 
 # ---------------------------------------------------------------- piece sets

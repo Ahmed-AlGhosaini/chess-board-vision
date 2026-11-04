@@ -101,12 +101,32 @@ any time; **Jump to live** returns to the newest move.
 | Lichess broadcast | Paste a broadcast round (or tournament) link and pick one of its games. |
 | Lichess TV | Top rated, blitz, rapid or classical; moves on to the channel's next game when one ends. |
 | Screen capture | Share a window or tab showing a 2D board (a Twitch/YouTube stream, Chess.com, any app). The board is found as in screenshot import, then read each time it changes and settles; the moves are found by matching the picture against the legal moves (two plies, if a frame was missed). |
+| Firefox extension | Follows any board on Lichess (games, TV, analysis, studies, broadcasts, puzzles), also in a background tab, with one chessvision tab per Firefox tab: see below. |
 
 Lichess shows other people's games with a short delay, and broadcasts arrive as fast as the
 tournament relays them. Screen capture has the same limits as screenshots (2D boards seen
 straight on). If the board moves on screen, use **Find board again**. If moves were missed or a
 new game started, the tab shows *Lost track* and offers to restart from the position on
 screen. The per-move depth is set in **Settings → Analysis → Live game depth**.
+
+### Firefox extension
+
+`firefox-extension/` sends the main board of any Lichess page to the app as soon as the page
+opens, whether moves are played or stepped through, and carries on when the Firefox tab moves to
+another game. Small preview boards (game lists, the home page) are ignored, and so is a game you
+are playing yourself until it ends, as engine help during your own game is against Lichess's rules.
+**Stop** on a live tab stops following that page; the toolbar button turns sending off altogether,
+shows the current tab's status and sets the app's address, if you start it with another `--port`.
+
+To try it, open `about:debugging#/runtime/this-firefox`, choose **Load Temporary Add-on** and
+pick `firefox-extension/manifest.json`. Firefox removes it again when it closes. To keep it, sign it
+for yourself with a free [addons.mozilla.org API key](https://addons.mozilla.org/developers/addon/api/key/):
+it stays private to you, and Firefox opens the resulting `.xpi` to install it.
+
+```bash
+npx web-ext sign --source-dir firefox-extension --artifacts-dir firefox-extension/dist \
+  --channel unlisted --api-key YOUR_JWT_ISSUER --api-secret YOUR_JWT_SECRET
+```
 
 ### Lichess API token (optional)
 

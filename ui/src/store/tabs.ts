@@ -35,7 +35,8 @@ export interface PuzzleState {
 export type LiveStatus = "connecting" | "live" | "reconnecting" | "ended" | "lost-sync" | "stopped" | "error";
 
 export interface LiveState {
-  source: "lichess" | "capture";
+  source: "lichess" | "capture" | "page"; // page: a board sent by the browser extension
+  session?: string; // page: which browser tab this tab follows
   url?: string; // lichess: the link that was opened
   round?: string; // lichess broadcast round and game
   game?: string;

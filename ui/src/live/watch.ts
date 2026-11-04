@@ -108,7 +108,7 @@ function endGame(tabId: string, result: string, reason: string) {
 // ------------------------------------------------------------ evaluation
 
 /** Queue positions for the per-move evaluation (positions already scored are skipped). */
-function evaluate(tabId: string, ids: string[]) {
+export function evaluate(tabId: string, ids: string[]) {
   const t = tabOf(tabId);
   if (!t) return;
   listen(tabId);
