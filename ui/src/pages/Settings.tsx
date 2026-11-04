@@ -80,6 +80,9 @@ export function SettingsPage() {
           <Card withBorder radius="md">
             <Title order={4} mb="xs">Analysis</Title>
             <Row label="Evaluation bar"><Switch checked={s.showEvalBar} onChange={(e) => s.set({ showEvalBar: e.currentTarget.checked })} /></Row>
+            <Row label="Move badges" description="Blunder, brilliant and other move classes shown on the moved piece">
+              <Switch checked={s.showMoveBadges} onChange={(e) => s.set({ showMoveBadges: e.currentTarget.checked })} />
+            </Row>
             <Row label="Engine arrows" description="Best moves drawn on the board">
               <SegmentedControl size="xs" value={String(s.engineArrows)} onChange={(v) => s.set({ engineArrows: Number(v) })} data={["0", "1", "2", "3"]} />
             </Row>
@@ -87,7 +90,7 @@ export function SettingsPage() {
               <NumberInput size="xs" w={90} min={6} max={30} value={s.reportDepth} onChange={(v) => s.set({ reportDepth: Number(v) || 16 })} />
             </Row>
             <Row label="Add best lines to reports"><Switch checked={s.reportVariations} onChange={(e) => s.set({ reportVariations: e.currentTarget.checked })} /></Row>
-            <Row label="Live game depth" description="Search depth for each move of a live game, to classify it">
+            <Row label="Move class depth" description="Search depth used to classify moves on the board and in live games">
               <NumberInput size="xs" w={90} min={6} max={30} value={s.liveDepth} onChange={(v) => s.set({ liveDepth: Number(v) || 14 })} />
             </Row>
           </Card>

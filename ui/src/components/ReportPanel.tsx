@@ -1,19 +1,10 @@
 import { Button, Group, NumberInput, Paper, Progress, SimpleGrid, Stack, Switch, Table, Text } from "@mantine/core";
 import { IconReportAnalytics, IconX } from "@tabler/icons-react";
-import type { MoveClass } from "../chess/eval";
+import { MOVE_CLASSES, type MoveClass } from "../chess/eval";
 import { cancelReport, startReport } from "../engine/report";
 import { useSettings } from "../store/settings";
 import type { Tab } from "../store/tabs";
 import { EvalGraph } from "./EvalGraph";
-
-const CLASS_ROWS: { cls: MoveClass; label: string; color: string }[] = [
-  { cls: "best", label: "Best", color: "#26c2a3" },
-  { cls: "excellent", label: "Excellent", color: "#5c8bb0" },
-  { cls: "good", label: "Good", color: "#82a96b" },
-  { cls: "inaccuracy", label: "Inaccuracy", color: "#e6b800" },
-  { cls: "mistake", label: "Mistake", color: "#e69d00" },
-  { cls: "blunder", label: "Blunder", color: "#df5353" },
-];
 
 export function ReportPanel({ tab, onSelect }: { tab: Tab; onSelect: (id: string) => void }) {
   const depth = useSettings((s) => s.reportDepth);
@@ -84,7 +75,7 @@ export function ReportPanel({ tab, onSelect }: { tab: Tab; onSelect: (id: string
           </SimpleGrid>
           <Table withRowBorders={false} verticalSpacing={2} fz="sm">
             <Table.Tbody>
-              {CLASS_ROWS.map(({ cls, label, color }) => (
+              {MOVE_CLASSES.map(({ cls, label, color }) => (
                 <Table.Tr key={cls}>
                   <Table.Td ta="center" w={60}>{counts(true)[cls] ?? 0}</Table.Td>
                   <Table.Td ta="center" style={{ color, fontWeight: 600 }}>{label}</Table.Td>

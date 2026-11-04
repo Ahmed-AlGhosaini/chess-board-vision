@@ -1,4 +1,5 @@
-import { averageCpl, classifyMove, gameAccuracy, type MoveClass } from "../chess/eval";
+import { classifyPlayed } from "../chess/classify";
+import { averageCpl, gameAccuracy, type MoveClass } from "../chess/eval";
 import { turnOf } from "../chess/position";
 import { addMove, mainline, movesTo, newGame, promoteVariation, rootFen, updateNode, type GameState } from "../chess/tree";
 import { gameTitle } from "../components/ImportModal";
@@ -130,7 +131,7 @@ function classOf(g: GameState, parentId: string, id: string): MoveClass | null {
   const prev = g.nodes[parentId];
   const node = g.nodes[id];
   if (!prev.score || !node.score) return null;
-  return classifyMove(prev.score, node.score, turnOf(prev.fen) === "white", prev.best === node.uci);
+  return classifyPlayed(prev.fen, node.uci!, { score: prev.score, best: prev.best, second: prev.second }, node.score);
 }
 
 /** Accuracy and move classes over the main line, as far as it has been evaluated. */
@@ -150,10 +151,10 @@ function liveReport(g: GameState): Report {
   };
 }
 
-function onEval(tabId: string, msg: { tag: string; score: any; best?: string }) {
+function onEval(tabId: string, msg: { tag: string; score: any; best?: string; second?: any }) {
   const t = tabOf(tabId);
   if (!t?.game.nodes[msg.tag]) return;
-  let g = updateNode(t.game, msg.tag, { score: msg.score, best: msg.best });
+  let g = updateNode(t.game, msg.tag, { score: msg.score, best: msg.best, second: msg.second });
   const ids = mainline(g);
   const i = ids.indexOf(msg.tag);
   // this move, and the next one, which is judged against this position

@@ -13,7 +13,9 @@ import {
   addLine, addMove, current, deleteNode, gameFrom, goEnd, goNext, goPrev, goSibling, goStart, goTo, mainline, movesTo, newGame,
   pathTo, promoteVariation, rootFen, toggleNag, truncateAfter, updateNode,
 } from "../chess/tree";
+import { MOVE_CLASSES, nagInfo } from "../chess/eval";
 import { useAnalysis } from "../engine/useAnalysis";
+import { useMoveClass } from "../engine/useMoveClass";
 import { api, type EngineInfo } from "../lib/api";
 import { moveSound } from "../lib/sound";
 import { useSettings } from "../store/settings";
@@ -22,6 +24,7 @@ import { useUi } from "../store/ui";
 import { AnnotationPanel } from "../components/AnnotationPanel";
 import { BoardEditor, editorToFen, fenToEditor, type EditorState } from "../components/BoardEditor";
 import { Chessboard } from "../components/Chessboard";
+import type { MoveBadge } from "../components/MoveBadge";
 import { EnginePanel } from "../components/EnginePanel";
 import { EvalBar } from "../components/EvalBar";
 import { ExplorerPanel } from "../components/ExplorerPanel";
@@ -83,7 +86,7 @@ function BoardLayout({ tab, play }: { tab: Tab; play?: ReturnType<typeof usePlay
   const playing = isPlay && tab.play?.status === "playing";
   const puzzle = tab.type === "puzzle" ? tab.puzzle : undefined;
   const solving = puzzle?.status === "solving";
-  const engineAllowed = !playing && !solving && !(puzzle?.status === "loading");
+  const engineAllowed = !solving && !(puzzle?.status === "loading");
 
   const engineIds = useMemo(() => {
     const ids = settings.analysisEngines.filter((id) => engines.some((e) => e.id === id));
@@ -93,6 +96,17 @@ function BoardLayout({ tab, play }: { tab: Tab; play?: ReturnType<typeof usePlay
   const results = useAnalysis(tab.id, engineIds, { rootFen: rootFen(g), moves, fen: node.fen }, tab.analysisOn && engineAllowed);
   const primary = engineIds.map((id) => results[id]).find(Boolean);
   const evalScore = engineAllowed ? (primary?.lines[0]?.score ?? node.score) : undefined;
+
+  const moveClass = useMoveClass(tab, engineIds[0], tab.analysisOn && engineAllowed && settings.showMoveBadges);
+  const badge = useMemo<MoveBadge | null>(() => {
+    if (!settings.showMoveBadges || !engineAllowed || !node.uci) return null;
+    const square = node.uci.slice(2, 4);
+    const info = MOVE_CLASSES.find((c) => c.cls === moveClass);
+    if (info) return { square, glyph: info.glyph, color: info.color, label: info.label };
+    // no engine verdict yet: fall back to the move's annotation, as in an annotated PGN
+    const nag = (node.nags ?? []).map(nagInfo).find((n) => n && n.nag <= 6);
+    return nag?.color ? { square, glyph: nag.symbol, color: nag.color, label: nag.label } : null;
+  }, [settings.showMoveBadges, engineAllowed, node.uci, node.nags, moveClass]);
 
   const setGame = (fn: Parameters<typeof updateGame>[1]) => updateGame(tab.id, fn);
 
@@ -158,7 +172,7 @@ function BoardLayout({ tab, play }: { tab: Tab; play?: ReturnType<typeof usePlay
     // game report: where the engine wanted to go instead
     if (!engineAllowed || !tab.analysisOn) {
       const parent = node.parent ? g.nodes[node.parent] : null;
-      if (!playing && parent?.best && parent.best !== node.uci && (node.nags ?? []).some((n) => [2, 4, 6].includes(n))) {
+      if (parent?.best && parent.best !== node.uci && (node.nags ?? []).some((n) => [2, 4, 6].includes(n))) {
         const [o, d] = uciSquares(parent.best);
         shapes.push({ orig: o, dest: d, brush: "hint" });
       }
@@ -235,7 +249,7 @@ function BoardLayout({ tab, play }: { tab: Tab; play?: ReturnType<typeof usePlay
       tickingSince={liveTail && turnOf(node.fen) === c ? tab.live!.clockAt : undefined} />
   );
 
-  const showSidePanels = !playing && !(tab.type === "puzzle" && (!puzzle || solving || puzzle.status === "loading"));
+  const showSidePanels = !(tab.type === "puzzle" && (!puzzle || solving || puzzle.status === "loading"));
 
   return (
     <div className="board-layout">
@@ -245,7 +259,7 @@ function BoardLayout({ tab, play }: { tab: Tab; play?: ReturnType<typeof usePlay
           {settings.showEvalBar && engineAllowed && <EvalBar score={evalScore} orientation={tab.orientation} />}
           <div className="board-square" onWheel={onWheel}>
             <Chessboard fen={node.fen} orientation={tab.orientation} lastMove={node.uci} movable={movable} onMove={onMove}
-              shapes={node.shapes} autoShapes={autoShapes} onShapes={(s) => setGame((x) => updateNode(x, x.cursor, { shapes: s }))} />
+              shapes={node.shapes} autoShapes={autoShapes} badge={badge} onShapes={(s) => setGame((x) => updateNode(x, x.cursor, { shapes: s }))} />
           </div>
         </div>
         {bar(tab.orientation)}

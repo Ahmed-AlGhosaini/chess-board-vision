@@ -1,7 +1,8 @@
-engine
+/engine/
 .mypy_cache
 *.pyc
-data/
+private*
+databases/
 ui/node_modules/
 ui/dist/
 firefox-extension/dist/

@@ -7,6 +7,7 @@ import type { Key } from "chessground/types";
 import { checkColor, dests, isPromotion, tryPos, turnOf, uciSquares, type Color } from "../chess/position";
 import type { Shape } from "../chess/tree";
 import { useSettings } from "../store/settings";
+import { MoveBadgeIcon, type MoveBadge } from "./MoveBadge";
 import { Piece, type Role } from "./Piece";
 
 export interface ChessboardProps {
@@ -22,7 +23,12 @@ export interface ChessboardProps {
   viewOnly?: boolean;
   coordinates?: boolean;
   highlight?: Map<Key, string>;
+  /** quality mark on a piece, e.g. a blunder on the square the piece just moved to */
+  badge?: MoveBadge | null;
 }
+
+/** Badge size as a percentage of the board: 45% of a square. */
+const BADGE_SIZE = 12.5 * 0.45;
 
 const BRUSHES = {
   engine1: { key: "e1", color: "#003088", opacity: 0.8, lineWidth: 11 },
@@ -34,7 +40,7 @@ const BRUSHES = {
 };
 
 export function Chessboard(props: ChessboardProps) {
-  const { fen, orientation, lastMove, movable = "both", shapes, autoShapes, viewOnly, highlight } = props;
+  const { fen, orientation, lastMove, movable = "both", shapes, autoShapes, viewOnly, highlight, badge } = props;
   const settings = useSettings();
   const el = useRef<HTMLDivElement>(null);
   const api = useRef<Api | null>(null);
@@ -157,9 +163,26 @@ export function Chessboard(props: ChessboardProps) {
     );
   }
 
+  let badgeEl = null;
+  if (badge) {
+    const file = badge.square.charCodeAt(0) - 97;
+    const rank = Number(badge.square[1]) - 1;
+    const col = orientation === "white" ? file : 7 - file;
+    const row = orientation === "white" ? 7 - rank : rank;
+    badgeEl = (
+      <MoveBadgeIcon
+        key={badge.square + badge.glyph}
+        className="move-badge"
+        badge={badge}
+        style={{ left: `${(col + 1) * 12.5 - BADGE_SIZE}%`, top: `${row * 12.5}%`, width: `${BADGE_SIZE}%`, height: `${BADGE_SIZE}%` }}
+      />
+    );
+  }
+
   return (
     <div className="board-box">
       <div ref={el} className="cg-wrap" style={{ width: "100%", height: "100%" }} />
+      {badgeEl}
       {promoBox}
     </div>
   );

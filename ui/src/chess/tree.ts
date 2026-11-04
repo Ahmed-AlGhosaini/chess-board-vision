@@ -21,6 +21,7 @@ export interface TreeNode {
   clock?: number; // seconds left after this move ([%clk])
   score?: Score; // stored engine evaluation of this position (game report)
   best?: string; // engine's best move from this position, UCI (game report)
+  second?: Score; // score of the engine's second-best move (game report)
 }
 
 export interface GameState {

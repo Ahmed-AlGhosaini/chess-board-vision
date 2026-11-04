@@ -40,14 +40,36 @@ export function chartValue(s: Score | undefined): number | null {
   return Math.max(-10, Math.min(10, (s.cp ?? 0) / 100));
 }
 
-export type MoveClass = "best" | "excellent" | "good" | "inaccuracy" | "mistake" | "blunder";
+export type MoveClass = "brilliant" | "great" | "best" | "excellent" | "good" | "inaccuracy" | "mistake" | "blunder";
 
-export const NAG_FOR_CLASS: Partial<Record<MoveClass, number>> = { inaccuracy: 6, mistake: 2, blunder: 4 };
+/** Every move class, strongest first, with how it is shown. */
+export const MOVE_CLASSES: { cls: MoveClass; label: string; glyph: string; color: string }[] = [
+  { cls: "brilliant", label: "Brilliant", glyph: "!!", color: "#26c2a3" },
+  { cls: "great", label: "Great", glyph: "!", color: "#5c8bb0" },
+  { cls: "best", label: "Best", glyph: "★", color: "#5f9e3f" },
+  { cls: "excellent", label: "Excellent", glyph: "✓", color: "#82a96b" },
+  { cls: "good", label: "Good", glyph: "✓", color: "#8f9c85" },
+  { cls: "inaccuracy", label: "Inaccuracy", glyph: "?!", color: "#e6b800" },
+  { cls: "mistake", label: "Mistake", glyph: "?", color: "#e69d00" },
+  { cls: "blunder", label: "Blunder", glyph: "??", color: "#df5353" },
+];
+
+export const NAG_FOR_CLASS: Partial<Record<MoveClass, number>> = { brilliant: 3, great: 1, inaccuracy: 6, mistake: 2, blunder: 4 };
 
 /** Classify by the drop in the mover's winning chances (Lichess thresholds). */
 export function classifyMove(before: Score, after: Score, moverIsWhite: boolean, isBest: boolean): MoveClass {
-  const drop = moverIsWhite ? winPct(before) - winPct(after) : winPct(after) - winPct(before);
   if (isBest) return "best";
+  // walking into a forced mate, or letting one slip, counts for more than the
+  // win% says, unless the game was decided either way (Lichess thresholds)
+  const moverMates = (s: Score) => s.mate !== undefined && (s.mate === 0 ? s.winner === "white" : s.mate > 0) === moverIsWhite;
+  const moverMated = (s: Score) => s.mate !== undefined && !moverMates(s);
+  const allowsMate = moverMated(after) && !moverMated(before);
+  if (allowsMate || (moverMates(before) && !moverMates(after))) {
+    const cp = (allowsMate ? before.cp ?? 0 : after.cp ?? 0) * (moverIsWhite ? 1 : -1);
+    const decided = allowsMate ? -cp : cp;
+    return decided >= 1000 ? "inaccuracy" : decided >= 700 ? "mistake" : "blunder";
+  }
+  const drop = moverIsWhite ? winPct(before) - winPct(after) : winPct(after) - winPct(before);
   if (drop >= 30) return "blunder";
   if (drop >= 20) return "mistake";
   if (drop >= 10) return "inaccuracy";

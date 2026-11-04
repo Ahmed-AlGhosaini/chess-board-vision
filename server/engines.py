@@ -281,19 +281,23 @@ class AnalysisSession:
 
 def evaluate(eng: chess.engine.SimpleEngine, board: chess.Board, limit: chess.engine.Limit,
              game: object = None) -> dict:
-    """Score (White's view), best move and line of one position; game-over positions need no search."""
+    """Score (White's view), best move and line of one position, plus the score
+    of the second-best move; game-over positions need no search."""
     outcome = board.outcome(claim_draw=False)
     if outcome is not None:
         if outcome.winner is None:
             return {"score": {"cp": 0}}
         return {"score": {"mate": 0, "winner": "white" if outcome.winner else "black"}}
-    info = eng.analyse(board, limit, game=game)
+    infos = eng.analyse(board, limit, multipv=2, game=game)
+    info = infos[0]
     out: dict[str, Any] = {"score": score_json(info["score"])}
     pv = info.get("pv") or []
     if pv:
         out["best"] = pv[0].uci()
         out["pv"] = [m.uci() for m in pv[:10]]
         out["san"] = pv_san(board, pv, 10)
+    if len(infos) > 1 and "score" in infos[1]:
+        out["second"] = score_json(infos[1]["score"])
     return out
 
 

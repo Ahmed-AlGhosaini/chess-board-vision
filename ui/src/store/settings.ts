@@ -36,6 +36,7 @@ export interface Settings {
   autoQueen: boolean;
   figurine: boolean;
   showEvalBar: boolean;
+  showMoveBadges: boolean;
   engineArrows: number;
   showMaterial: boolean;
   lichessToken: string;
@@ -65,6 +66,7 @@ export const useSettings = create<Settings>()(
       autoQueen: false,
       figurine: false,
       showEvalBar: true,
+      showMoveBadges: true,
       engineArrows: 3,
       showMaterial: true,
       lichessToken: "",

@@ -70,6 +70,9 @@ body { overflow: hidden; }
 .promotion-overlay { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.5); z-index: 20; }
 .promotion-choice { position: absolute; width: 12.5%; height: 12.5%; border-radius: 50%; background: radial-gradient(#ffffff 30%, #b0b0b0 100%); cursor: pointer; transition: border-radius 0.15s; }
 .promotion-choice:hover { border-radius: 4px; background: radial-gradient(#ffffff 30%, var(--mantine-primary-color-filled) 100%); }
+/* over the pieces, under a dragged piece; waits for the move animation to end */
+.move-badge { position: absolute; z-index: 5; pointer-events: none; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.55)); animation: move-badge-in 0.16s ease-out 0.18s both; }
+@keyframes move-badge-in { from { opacity: 0; transform: scale(0.4); } to { opacity: 1; transform: scale(1); } }
 cg-board square.uncertain { box-shadow: inset 0 0 0 3px #ff7a00; background: rgba(255, 122, 0, 0.2); }
 
 .editor-board { aspect-ratio: 1; height: auto; }

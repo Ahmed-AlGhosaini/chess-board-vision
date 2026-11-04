@@ -78,7 +78,7 @@ Get-NetTCPConnection -LocalPort 8765 -State Listen | ForEach-Object { Stop-Proce
 |---|---|
 | Boards | Tabs; analysis board with variations, NAGs, comments, drawn arrows; PGN/FEN import & export; board editor; keyboard and mouse-wheel navigation |
 | Screenshot import | Board found and read by the pipeline below; uncertain squares outlined; manual box selection if detection fails; orientation; side to move read from the last-move highlight, or picked by hand when there is none; then analyse or play |
-| Engine | Live MultiPV analysis over a websocket, eval bar, best-move arrows, hover previews, click a line to play it; several UCI engines side by side |
+| Engine | Live MultiPV analysis over a websocket, eval bar, best-move arrows, hover previews, click a line to play it; several UCI engines side by side; a badge on the moved piece classifies the move, from brilliant to blunder (can be turned off in Settings) |
 | Live games | Follow a game as it is played (Lichess game / broadcast / TV, or any shared screen); engine on the newest move, every move classified as it arrives ([details](#live-games)) |
 | Report | Whole-game analysis: accuracy, ACPL, inaccuracies/mistakes/blunders annotated, best lines added, clickable eval graph |
 | Explorer | Lichess masters / players explorer (needs a [Lichess token](#lichess-api-token-optional)) and your local databases |
