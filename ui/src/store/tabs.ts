@@ -36,8 +36,8 @@ export type LiveStatus = "connecting" | "live" | "reconnecting" | "ended" | "los
 
 export interface LiveState {
   source: "lichess" | "capture" | "page"; // page: a board sent by the browser extension
-  session?: string; // page: which browser tab this tab follows
-  url?: string; // lichess: the link that was opened
+  session?: string; // page, or capture of a tab sent by the extension: which browser tab this tab follows
+  url?: string; // lichess: the link that was opened; page and capture: the page being followed
   round?: string; // lichess broadcast round and game
   game?: string;
   status: LiveStatus;

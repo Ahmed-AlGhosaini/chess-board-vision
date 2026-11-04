@@ -205,7 +205,7 @@ setInterval(() => {
     const tab = tabFor(session);
     if (tab) {
       unregisterCapture(tab.id);
-      if (tab.live?.status === "live") patchLive(tab.id, { status: "stopped", error: "The page stopped sending. Open a board on Lichess in that Firefox tab to follow it again." });
+      if (tab.live?.status === "live") patchLive(tab.id, { status: "stopped", error: "The page stopped sending. To follow it again, open a board on Lichess in that Firefox tab, with the tab ticked under the extension's toolbar button." });
     }
     sessions.delete(session);
   }

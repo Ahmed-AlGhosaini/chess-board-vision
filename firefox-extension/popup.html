@@ -4,18 +4,37 @@
   <meta charset="utf-8">
   <meta name="color-scheme" content="light dark">
   <style>
-    body { width: 280px; margin: 0; padding: 12px; font: 13px system-ui, sans-serif; }
+    body { width: 320px; margin: 0; padding: 12px; font: 13px system-ui, sans-serif; }
     label { display: block; }
-    .switch { font-weight: 600; }
-    #status { margin: 10px 0; line-height: 1.4; }
+    h1 { margin: 0 0 8px; font-size: 13px; font-weight: 600; }
+    section { margin: 0 0 12px; }
+    h2 { margin: 0; font-size: 12px; font-weight: 600; }
+    .note { margin: 2px 0 4px; font-size: 12px; opacity: .8; line-height: 1.4; }
+    ul { margin: 0; padding: 0; list-style: none; max-height: 200px; overflow-y: auto; }
+    ul label { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 6px; padding: 4px 0; }
+    ul input { margin: 2px 0 0; }
+    .title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .here .title { font-weight: 600; }
+    .status { grid-column: 2; font-size: 12px; opacity: .8; line-height: 1.4; }
+    .status:empty { display: none; }
     input[type="url"] { width: 100%; box-sizing: border-box; margin-top: 4px; padding: 4px 6px; }
     .address { font-size: 12px; opacity: .8; }
     .error { color: #e03131; }
   </style>
 </head>
 <body>
-  <label class="switch"><input id="enabled" type="checkbox"> Send Lichess boards to chessvision</label>
-  <p id="status"></p>
+  <h1>Follow in chessvision</h1>
+  <section id="lichess-tabs" hidden>
+    <h2>Lichess tabs</h2>
+    <p class="note">The board is read from the page.</p>
+    <ul id="lichess"></ul>
+  </section>
+  <section id="other-tabs" hidden>
+    <h2>Other tabs</h2>
+    <p class="note">The board is read from a picture of the tab: 2D boards only. Not for games you are playing yourself.</p>
+    <ul id="other"></ul>
+  </section>
+  <p id="none" class="note" hidden>No tabs to follow. Open a board in a tab, then choose it here.</p>
   <label class="address">App address
     <input id="app" type="url" spellcheck="false">
   </label>

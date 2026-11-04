@@ -1,27 +1,46 @@
 # chess-board-vision
 
-Read a chess position from a screenshot, then analyse it with Stockfish, either in a
-local chess GUI ([Analysis UI](#analysis-ui)) or from the command line.
+A local chess analysis app that follows games while they are played. Point it at a live game
+on a website such as Lichess or Chess.com, or at a stream or video on Twitch or YouTube, and
+Stockfish analyses and classifies every move as it arrives.
 
-## Screenshots
+It also has these tools ([details](#analysis-ui)):
 
-**1. Import a screenshot.** Drop or paste (Ctrl+V) a picture of a board. The board is
-located (blue grid) and every square is read; fix anything misread, choose the side to
-move, then analyse or play from the position.
+* **Screenshot import:** read a position from a picture of any 2D board, then analyse or play from it.
+* **Analysis board:** engine lines, variations, annotations and PGN/FEN import and export.
+* **Game report:** accuracy, mistakes and blunders, and an evaluation graph for a whole game.
+* **Opening explorer:** Lichess masters and players, and your own databases.
+* **Play vs engine:** 8 strength levels, with or without a clock.
+* **Puzzles:** tactics from Lichess, filtered by theme and difficulty.
+* **Databases:** import PGN files or your Lichess and Chess.com games, and search them.
+* **Firefox extension:** choose a browser tab and the app follows the board in it.
+* **[Command line](#command-line):** turn a screenshot into a FEN and the engine's top moves.
 
-![Screenshot import: the detected board on the left, the recognised and editable position on the right](docs/ui-screenshot-import.png)
+![The main page, screenshot import, live analysis of a Lichess game and of a YouTube video next to the same game in the app, and the Firefox extension's popup on a Lichess tab](docs/overview.png)
 
-**2. Analyse and keep playing.** The position opens in an analysis board with the
-engine running. Here the engine's suggestions 1. Re1 b5 were played from the imported
-position, and the analysis continues from the new position.
+## Download
 
-![Analysis board with engine lines, best-move arrows and the move list](docs/ui-analysis.png)
+**The app.** You need Python and Node 18+. There is no installer: clone the repository and
+build the interface once.
 
-**3. Game report.** Accuracy, move classification and an evaluation graph for a whole
-game; the opening explorer, play vs engine, puzzles and databases are described
-[below](#analysis-ui).
+```bash
+git clone https://github.com/Ahmed-AlGhosaini/chess-board-vision.git
+cd chess-board-vision
+pip install -r requirements.txt
+cd ui && npm install && npm run build && cd ..
+python app.py                                     # opens http://127.0.0.1:8765
+```
 
-![Game report with accuracy, move classes and evaluation graph](docs/ui-report.png)
+**The engine.** Stockfish is not included. On Windows, [download it](https://stockfishchess.org/download/)
+and extract it into `engine/`, so that the program is at
+`engine/stockfish/stockfish-windows-x86-64-universal.exe`; the app finds it there. For any other
+system or build, put it on your PATH as `stockfish` or set `STOCKFISH_PATH`. Other UCI engines
+can be added in the app.
+
+**The Firefox extension (optional).** It is in `firefox-extension/`. In Firefox, open
+`about:debugging#/runtime/this-firefox`, choose **Load Temporary Add-on** and pick
+`firefox-extension/manifest.json`. Firefox removes it when it closes; [Firefox extension](#firefox-extension)
+explains how to keep it.
 
 ## Command line
 
@@ -63,12 +82,7 @@ with screenshot import built in: drop or paste (Ctrl+V) a picture of a board, fi
 misread square, check the side to move (read from the highlighted last move when the
 board shows one), and the engine starts analysing. From there you
 can keep playing moves and analysing variations, or play the engine from that position.
-
-```bash
-pip install -r requirements.txt
-cd ui && npm install && npm run build && cd ..   # once (Node 18+)
-python app.py                                     # opens http://127.0.0.1:8765
-```
+See [Download](#download) to install and start it. To stop a server left running on Windows:
 
 ```bash
 Get-NetTCPConnection -LocalPort 8765 -State Listen | ForEach-Object { Stop-Process -Id $_.OwningProcess }
@@ -101,7 +115,7 @@ any time; **Jump to live** returns to the newest move.
 | Lichess broadcast | Paste a broadcast round (or tournament) link and pick one of its games. |
 | Lichess TV | Top rated, blitz, rapid or classical; moves on to the channel's next game when one ends. |
 | Screen capture | Share a window or tab showing a 2D board (a Twitch/YouTube stream, Chess.com, any app). The board is found as in screenshot import, then read each time it changes and settles; the moves are found by matching the picture against the legal moves (two plies, if a frame was missed). |
-| Firefox extension | Follows any board on Lichess (games, TV, analysis, studies, broadcasts, puzzles), also in a background tab, with one chessvision tab per Firefox tab: see below. |
+| Firefox extension | Follows the board in the Firefox tabs you choose, with one chessvision tab per Firefox tab. Lichess tabs (games, TV, analysis, studies, broadcasts, puzzles) are read directly, other tabs from a picture as in screen capture: see below. |
 
 Lichess shows other people's games with a short delay, and broadcasts arrive as fast as the
 tournament relays them. Screen capture has the same limits as screenshots (2D boards seen
@@ -111,12 +125,25 @@ screen. The per-move depth is set in **Settings → Analysis → Live game depth
 
 ### Firefox extension
 
-`firefox-extension/` sends the main board of any Lichess page to the app as soon as the page
-opens, whether moves are played or stepped through, and carries on when the Firefox tab moves to
-another game. Small preview boards (game lists, the home page) are ignored, and so is a game you
-are playing yourself until it ends, as engine help during your own game is against Lichess's rules.
-**Stop** on a live tab stops following that page; the toolbar button turns sending off altogether,
-shows the current tab's status and sets the app's address, if you start it with another `--port`.
+`firefox-extension/` sends nothing until you choose a tab: its toolbar button lists your open
+tabs, and each tab you tick is followed from then on. A tab stays chosen until you untick or close
+it; a browser restart clears all choices. **Stop** on a live tab stops following it. The toolbar
+button also shows each chosen tab's status and sets the app's address, if you start it with another
+`--port`.
+
+**Lichess tabs** are read directly from the page, also in the background. The main board is sent
+whether moves are played or stepped through, and following carries on when the tab moves to another
+game. Small preview boards (game lists, the home page) are ignored, and so is a game you are
+playing yourself until it ends, as engine help during your own game is against Lichess's rules.
+
+**Other tabs** (Chess.com, a Twitch or YouTube stream) are sent as pictures, twice a second when
+they change, to the app on this computer and nowhere else. Choosing one opens the screen capture
+dialog in the app without asking to share the screen: check the position there and start watching.
+The limits of screen capture apply (2D boards seen straight on), and it cannot tell that a game is
+your own, so do not use it on games you are playing. **In a background tab, Firefox freezes videos**
+after a few seconds and some pages stop redrawing: keep such a tab visible, in its own window if
+need be. Taking pictures of any site is why the extension asks for access to all websites; only
+tabs you tick are ever captured.
 
 To try it, open `about:debugging#/runtime/this-firefox`, choose **Load Temporary Add-on** and
 pick `firefox-extension/manifest.json`. Firefox removes it again when it closes. To keep it, sign it

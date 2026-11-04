@@ -1,6 +1,7 @@
 "use strict";
 /*
- * Reads the board on a Lichess page whenever it changes and hands the position to background.js.
+ * Reads the board on a Lichess page whenever it changes and hands the position to background.js,
+ * once the tab has been chosen in the popup. Until then it reads nothing and sends nothing.
  *
  * Lichess's board is chessground: <piece class="white knight"> inside <cg-board>, square in
  * `cgKey` (a property the page sets, so behind wrappedJSObject here) or else the CSS transform.
@@ -128,7 +129,7 @@ function soon(f) {
 }
 
 function schedule() {
-  if (timer) return;
+  if (timer || !enabled) return;
   if (document.hidden) {
     timer = -1;
     soon(() => check(true));
@@ -158,24 +159,24 @@ exportFunction((cb) => {
   return 0;
 }, page, { defineAs: "requestAnimationFrame" });
 
-// A page leaving says so; coming back from the browser's back/forward cache, it reports again.
-addEventListener("pagehide", () => {
-  if (enabled) report({ type: "none" });
-});
-addEventListener("pageshow", (e) => {
-  if (e.persisted) {
-    sent = "";
-    check(true);
-  }
-});
-
 function setEnabled(on) {
   enabled = on;
   sent = "";
   if (on) check(true);
 }
 
-browser.storage.onChanged.addListener((changes) => {
-  if (changes.enabled) setEnabled(changes.enabled.newValue);
+const askIfChosen = () => browser.runtime.sendMessage({ type: "chosen?" }).then(setEnabled, () => {});
+
+// A page leaving says so; coming back from the browser's back/forward cache, it asks again,
+// as the tab may have been unticked meanwhile, and reports again if not.
+addEventListener("pagehide", () => {
+  if (enabled) report({ type: "none" });
 });
-browser.storage.local.get({ enabled: true }).then((s) => setEnabled(s.enabled));
+addEventListener("pageshow", (e) => {
+  if (e.persisted) askIfChosen();
+});
+
+browser.runtime.onMessage.addListener((msg) => {
+  if (msg.type === "chosen") setEnabled(msg.on);
+});
+askIfChosen();

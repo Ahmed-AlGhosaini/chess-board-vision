@@ -9,7 +9,8 @@ import type { Key } from "chessground/types";
 import { fenError } from "../chess/position";
 import { newGame } from "../chess/tree";
 import { api } from "../lib/api";
-import { captureSupported, detectBoard, grabFrame, shareScreen, startCapture, videoFor, type VisionResult } from "../live/capture";
+import { captureSupported, detectBoard, grabFrame, shareScreen, startCapture, type FrameSource, type VisionResult } from "../live/capture";
+import { tabSource } from "../live/tabFrames";
 import { startLichessWatch } from "../live/watch";
 import { useTabs, type LiveState } from "../store/tabs";
 import { useUi } from "../store/ui";
@@ -36,8 +37,12 @@ const TV_CHANNELS = [
 export function LiveSetup() {
   const open = useUi((s) => s.liveOpen);
   const setOpen = useUi((s) => s.setLiveOpen);
+  const offer = useUi((s) => s.tabOffer);
   const [mode, setMode] = useState<string | null>("lichess");
   const close = () => setOpen(false);
+  useEffect(() => {
+    if (offer) setMode("capture"); // a tab chosen in the extension is set up like a shared screen
+  }, [offer]);
   return (
     <Modal opened={open} onClose={close} centered size={mode === "capture" ? "min(1180px, 96vw)" : "lg"}
       title={<Group gap="xs"><IconBroadcast size={20} /><Text fw={600}>Watch a live game</Text></Group>}>
@@ -125,6 +130,7 @@ function LichessForm({ onDone }: { onDone: () => void }) {
       )}
       <Text size="xs" c="dimmed">
         Lichess shows games to spectators with a short delay, and broadcasts arrive as fast as the tournament relays them.
+        To follow a board you already have open in Firefox, tick its tab under the chessvision extension's toolbar button.
       </Text>
     </Stack>
   );
@@ -132,8 +138,9 @@ function LichessForm({ onDone }: { onDone: () => void }) {
 
 function CaptureForm({ onDone }: { onDone: () => void }) {
   const openTab = useTabs((s) => s.openTab);
-  const [stream, setStream] = useState<MediaStream | null>(null);
-  const video = useRef<HTMLVideoElement | null>(null);
+  const offer = useUi((s) => s.tabOffer);
+  const setTabOffer = useUi((s) => s.setTabOffer);
+  const [source, setSource] = useState<FrameSource | null>(null);
   const started = useRef(false);
   const [frame, setFrame] = useState<Blob | null>(null);
   const [frameUrl, setFrameUrl] = useState<string | null>(null);
@@ -146,8 +153,8 @@ function CaptureForm({ onDone }: { onDone: () => void }) {
 
   // stop sharing when the dialog closes without starting (or another window is shared)
   useEffect(() => () => {
-    if (!started.current) stream?.getTracks().forEach((t) => t.stop());
-  }, [stream]);
+    if (!started.current) source?.stop();
+  }, [source]);
   useEffect(() => {
     if (!frame) return setFrameUrl(null);
     const u = URL.createObjectURL(frame);
@@ -183,32 +190,39 @@ function CaptureForm({ onDone }: { onDone: () => void }) {
     }
   };
 
-  const snap = async (v: HTMLVideoElement | null = video.current) => {
-    if (!v) return;
-    const blob = await grabFrame(v);
+  const snap = async (s: FrameSource | null = source) => {
+    if (!s) return;
+    const blob = await grabFrame(s);
     setFrame(blob);
     await read(blob);
+  };
+
+  const adopt = async (s: FrameSource) => {
+    setSource(s);
+    s.onEnded(() => {
+      if (started.current) return;
+      setSource(null);
+      setFrame(null);
+      setResult(null);
+      setEditor(null);
+    });
+    await snap(s);
   };
 
   const share = async () => {
     setError(null);
     try {
-      const s = await shareScreen();
-      const v = await videoFor(s);
-      video.current = v;
-      setStream(s);
-      s.getVideoTracks()[0]?.addEventListener("ended", () => {
-        if (started.current) return;
-        setStream(null);
-        setFrame(null);
-        setResult(null);
-        setEditor(null);
-      });
-      await snap(v);
+      await adopt(await shareScreen());
     } catch (e: any) {
       if (e?.name !== "NotAllowedError") setError(e.message || String(e)); // NotAllowedError = the user cancelled
     }
   };
+
+  useEffect(() => {
+    if (!offer) return;
+    void tabSource(offer).then((s) => (s ? adopt(s) : setTabOffer(null))).catch((e) => setError(e.message || String(e)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [offer]);
 
   const setOrientation = (wab: boolean) => {
     setWhiteAtBottom(wab);
@@ -231,21 +245,22 @@ function CaptureForm({ onDone }: { onDone: () => void }) {
   const problem = fen ? fenError(fen) : null;
 
   const start = () => {
-    if (!fen || problem || !stream || !video.current || !result?.bbox) return;
+    if (!fen || problem || !source || !result?.bbox) return;
     started.current = true;
     const id = openTab({
-      type: "live", title: "Screen capture", analysisOn: true, orientation: whiteAtBottom ? "white" : "black",
-      game: newGame(fen, { Event: "Screen capture" }), live: { source: "capture", status: "live" },
+      type: "live", title: source.title || "Screen capture", analysisOn: true, orientation: whiteAtBottom ? "white" : "black",
+      game: newGame(fen, { Event: "Screen capture" }), live: { source: "capture", status: "live", session: source.session, url: source.url },
     });
-    startCapture(id, stream, video.current, result.bbox, whiteAtBottom);
+    startCapture(id, source, result.bbox, whiteAtBottom);
+    setTabOffer(null);
     onDone();
   };
 
-  if (!captureSupported()) {
+  if (!source && !offer && !captureSupported()) {
     return <Alert color="orange" icon={<IconAlertTriangle size={16} />}>This browser cannot share its screen with a page.</Alert>;
   }
 
-  if (!stream) {
+  if (!source) {
     return (
       <Stack align="flex-start">
         <Text size="sm" c="dimmed">
@@ -255,7 +270,10 @@ function CaptureForm({ onDone }: { onDone: () => void }) {
         </Text>
         <Button leftSection={<IconScreenShare size={16} />} onClick={share}>Choose a window or tab to share</Button>
         {error && <Alert color="red" icon={<IconAlertTriangle size={16} />}>{error}</Alert>}
-        <Text size="xs" c="dimmed">The picture stays on this computer: frames go only to the local server.</Text>
+        <Text size="xs" c="dimmed">
+          The picture stays on this computer: frames go only to the local server. In Firefox, you can instead tick the tab under the
+          chessvision extension's toolbar button, and it comes here without asking to share the screen.
+        </Text>
       </Stack>
     );
   }
@@ -265,7 +283,7 @@ function CaptureForm({ onDone }: { onDone: () => void }) {
       <Grid.Col span={{ base: 12, md: 6 }}>
         <Stack gap="xs">
           <Group justify="space-between">
-            <Text size="sm" fw={600}>Shared screen</Text>
+            <Text size="sm" fw={600} truncate style={{ flex: 1, minWidth: 0 }}>{source.title ?? "Shared screen"}</Text>
             <Group gap={4}>
               <Button size="compact-xs" variant={cropMode ? "filled" : "default"} leftSection={<IconCrop size={12} />}
                 onClick={() => setCropMode((c) => !c)} disabled={!result}>

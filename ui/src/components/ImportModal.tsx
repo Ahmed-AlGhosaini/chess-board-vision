@@ -95,9 +95,9 @@ function BrowserExtension() {
     <Stack gap={6}>
       <Text size="sm" fw={600}>Firefox extension</Text>
       <Text size="xs" c="dimmed">
-        Follows any board on Lichess live: moves played, moves you step through, a new game. Add the firefox-extension folder of this
-        project (see the README), then open a board on Lichess. It opens here by itself, one tab per Firefox tab. Stop it here, or
-        for all boards from the extension's toolbar button. Games you are playing yourself are not sent until they end.
+        Follows the board in the Lichess tabs you choose, live: moves played, moves you step through, a new game. Add the
+        firefox-extension folder of this project (see the README), open a board on Lichess and tick its tab under the extension's
+        toolbar button. It opens here, one tab per Firefox tab, until you untick it. Games you are playing yourself are not sent until they end.
       </Text>
     </Stack>
   );

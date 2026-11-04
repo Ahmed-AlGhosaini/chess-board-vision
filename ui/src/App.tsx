@@ -10,6 +10,7 @@ import {
 } from "@tabler/icons-react";
 import { engineSocket } from "./lib/api";
 import { onPagePush } from "./live/pageWatch";
+import { onFramePush } from "./live/tabFrames";
 import { themeCss } from "./lib/themes";
 import { useSettings } from "./store/settings";
 import { useActiveTab, useTabs, type Page, type Tab } from "./store/tabs";
@@ -124,6 +125,7 @@ function Shell() {
   // boards sent by the browser extension
   useEffect(() => engineSocket.subscribe("push", (msg) => {
     if (msg.type === "push") onPagePush(msg);
+    else if (msg.type === "frame") onFramePush(msg);
   }), []);
 
   useHotkeys([["shift+?", () => ui.setShortcutsOpen(true)]]);

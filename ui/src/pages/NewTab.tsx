@@ -41,7 +41,7 @@ export function NewTabPage({ tab }: { tab: Tab }) {
             text="Drop or paste a picture of any 2D board. The position is recognised, you can fix it, and the engine starts analysing. Then keep playing or exploring from there."
             onClick={() => ui.openScreenshot()} />
           <Choice color="grape" icon={<IconFileImport size={26} />} title="Import a game"
-            text="Paste a Lichess game, study or puzzle link, or a PGN or FEN. Or add the Firefox extension, which follows any board on Lichess live."
+            text="Paste a Lichess game, study or puzzle link, or a PGN or FEN. Or add the Firefox extension, which follows the Lichess tabs you choose live."
             onClick={() => ui.setImportOpen(true)} />
         </SimpleGrid>
         <Divider />

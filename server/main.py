@@ -153,6 +153,7 @@ async def engine_socket(ws: WebSocket):
               {type: live_game|live_move|live_status|live_end|live_error, id, ...}  (see server/live.py)
               {type: eval_result|eval_error, id, tag, ...}
               {type: push, id: "push", session, seq, fen, orientation, url, stop}  (browser extension, see /push/live)
+              {type: frame, id: "push", session, seq, image, title, url, stop}  (browser extension, see /push/frame)
     """
     await ws.accept()
     loop = asyncio.get_running_loop()
@@ -356,13 +357,33 @@ class PagePush(BaseModel):
     stop: bool = False
 
 
-@app.post("/push/live")
-async def push_live(push: PagePush, request: Request):
-    """A board on a Lichess page, sent by firefox-extension/. Answers 503 while no UI is open.
-    Web pages can send requests here too, but always with their own Origin: only the extension gets through."""
+class FramePush(BaseModel):
+    session: str
+    seq: int
+    image: str = ""  # a JPEG data URL; empty only with stop
+    title: str = ""
+    url: str = ""
+    stop: bool = False
+
+
+MAX_FRAME = 32 * 1024 * 1024
+
+
+def _from_extension(request: Request):
+    """Web pages can send requests here too, but always with their own Origin: only the extension gets through."""
     origin = request.headers.get("origin", "")
     if origin and not origin.startswith("moz-extension://"):
         raise HTTPException(403, "Only the browser extension may send boards")
+
+
+def _web_url(url: str) -> str:
+    return url[:500] if url.startswith(("https://", "http://")) else ""
+
+
+@app.post("/push/live")
+async def push_live(push: PagePush, request: Request):
+    """A board on a Lichess page, sent by firefox-extension/. Answers 503 while no UI is open."""
+    _from_extension(request)
     try:
         if len(push.fen) > 100 or not re.fullmatch(r"[a-z0-9]{1,16}", push.session):
             raise ValueError
@@ -373,7 +394,22 @@ async def push_live(push: PagePush, request: Request):
         raise HTTPException(503, "chessvision is not open")
     push_targets[-1]({"type": "push", "id": "push", "session": push.session, "seq": push.seq, "fen": push.fen,
                       "orientation": "black" if push.orientation == "black" else "white", "stop": push.stop,
-                      "url": push.url[:500] if push.url.startswith(("https://", "http://")) else ""})
+                      "url": _web_url(push.url)})
+    return Response(status_code=204)
+
+
+@app.post("/push/frame")
+async def push_frame(push: FramePush, request: Request):
+    """A picture of a browser tab, sent by firefox-extension/, on its way to the UI's capture. Answers 503 while no UI is open."""
+    _from_extension(request)
+    if not re.fullmatch(r"[a-z0-9]{1,16}", push.session):
+        raise HTTPException(400, "Not a session")
+    if not push.stop and (not push.image.startswith("data:image/jpeg;base64,") or len(push.image) > MAX_FRAME):
+        raise HTTPException(400, "Not a readable picture")
+    if not push_targets:
+        raise HTTPException(503, "chessvision is not open")
+    push_targets[-1]({"type": "frame", "id": "push", "session": push.session, "seq": push.seq, "image": push.image,
+                      "title": push.title[:200], "url": _web_url(push.url), "stop": push.stop})
     return Response(status_code=204)
 
 

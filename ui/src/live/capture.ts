@@ -4,13 +4,25 @@ import { useTabs } from "../store/tabs";
 import { appendMoves, lastId, patchLive, registerCapture, unregisterCapture } from "./watch";
 
 /*
- * Screen capture as a live-game source: frames of a shared window or tab are
- * cropped to the board, and whenever the board has changed and then settled,
- * the crop goes to the server, which reads it and finds the legal moves that
- * lead from the game's last position to what is on screen.
+ * Screen capture as a live-game source: frames of a shared window or tab, or of a
+ * browser tab sent by the extension (tabFrames.ts), are cropped to the board, and
+ * whenever the board has changed and then settled, the crop goes to the server,
+ * which reads it and finds the legal moves that lead from the game's last position
+ * to what is on screen.
  */
 
-export type Box = [number, number, number, number]; // x, y, w, h in video pixels
+export type Box = [number, number, number, number]; // x, y, w, h in picture pixels
+
+/** Where the frames come from. */
+export interface FrameSource {
+  image: HTMLVideoElement | HTMLCanvasElement; // always shows the current frame
+  size: () => [number, number]; // of the current frame, zero until there is one
+  onEnded: (f: () => void) => void; // the other side stopped
+  stop: () => void;
+  session?: string; // a browser tab sent by the extension: its session, title and address
+  title?: string;
+  url?: string;
+}
 
 export interface VisionResult {
   ok: boolean;
@@ -44,8 +56,7 @@ const RETRY_MS = 1500; // an unreadable frame is tried again after this long
 const LOST_AFTER = 3; // unreadable reads in a row before the tab reports "lost track"
 
 interface Session {
-  stream: MediaStream;
-  video: HTMLVideoElement;
+  source: FrameSource;
   box: Box;
   whiteAtBottom: boolean;
   crop: HTMLCanvasElement;
@@ -65,12 +76,20 @@ const sessions = new Map<string, Session>();
 
 export const captureSupported = () => !!navigator.mediaDevices?.getDisplayMedia;
 
-export function shareScreen(): Promise<MediaStream> {
-  return navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 5, max: 10 } }, audio: false });
+/** Ask the browser to share a window or tab, and start playing it. */
+export async function shareScreen(): Promise<FrameSource> {
+  const stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 5, max: 10 } }, audio: false });
+  const v = await videoFor(stream);
+  return {
+    image: v,
+    size: () => (v.readyState < 2 ? [0, 0] : [v.videoWidth, v.videoHeight]),
+    onEnded: (f) => stream.getVideoTracks()[0]?.addEventListener("ended", f),
+    stop: () => stream.getTracks().forEach((t) => t.stop()),
+  };
 }
 
 /** A playing, detached <video> for a stream, once its first frame is available. */
-export async function videoFor(stream: MediaStream): Promise<HTMLVideoElement> {
+async function videoFor(stream: MediaStream): Promise<HTMLVideoElement> {
   const v = document.createElement("video");
   v.muted = true;
   v.playsInline = true;
@@ -81,11 +100,10 @@ export async function videoFor(stream: MediaStream): Promise<HTMLVideoElement> {
 }
 
 /** The whole current frame as a PNG. */
-export function grabFrame(video: HTMLVideoElement): Promise<Blob> {
+export function grabFrame(source: FrameSource): Promise<Blob> {
   const c = document.createElement("canvas");
-  c.width = video.videoWidth;
-  c.height = video.videoHeight;
-  c.getContext("2d")!.drawImage(video, 0, 0);
+  [c.width, c.height] = source.size();
+  c.getContext("2d")!.drawImage(source.image, 0, 0);
   return new Promise((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error("Could not read the frame"))), "image/png"));
 }
 
@@ -158,11 +176,11 @@ async function read(tabId: string, s: Session) {
 }
 
 function tick(tabId: string, s: Session) {
-  if (s.busy || s.video.readyState < 2) return;
+  if (s.busy || !s.source.size()[0]) return;
   const [x, y, w, h] = s.box;
   const size = Math.max(64, Math.min(512, Math.round(w)));
   if (s.crop.width !== size) s.crop.width = s.crop.height = size;
-  s.crop.getContext("2d")!.drawImage(s.video, x, y, w, h, 0, 0, size, size);
+  s.crop.getContext("2d")!.drawImage(s.source.image, x, y, w, h, 0, 0, size, size);
   s.thumb.drawImage(s.crop, 0, 0, THUMB, THUMB);
   const px = grey(s.thumb.getImageData(0, 0, THUMB, THUMB).data);
   const moving = s.prev !== null && diff(px, s.prev) > CHANGED;
@@ -188,19 +206,19 @@ function tick(tabId: string, s: Session) {
 }
 
 /** Follow the board inside `box` of a shared screen in the given live tab. */
-export function startCapture(tabId: string, stream: MediaStream, video: HTMLVideoElement, box: Box, whiteAtBottom: boolean) {
+export function startCapture(tabId: string, source: FrameSource, box: Box, whiteAtBottom: boolean) {
   stopCapture(tabId);
   const thumbCanvas = document.createElement("canvas");
   thumbCanvas.width = thumbCanvas.height = THUMB;
   const s: Session = {
-    stream, video, box, whiteAtBottom, crop: document.createElement("canvas"),
+    source, box, whiteAtBottom, crop: document.createElement("canvas"),
     thumb: thumbCanvas.getContext("2d", { willReadFrequently: true })!, timer: 0,
     prev: null, sent: null, busy: false, lastSent: 0, lastStatus: "", unknown: 0, failures: 0,
   };
   s.timer = window.setInterval(() => tick(tabId, s), TICK_MS);
   sessions.set(tabId, s);
   registerCapture(tabId, () => stopCapture(tabId));
-  stream.getVideoTracks()[0]?.addEventListener("ended", () => {
+  source.onEnded(() => {
     if (sessions.get(tabId) !== s) return;
     stopCapture(tabId);
     patchLive(tabId, { status: "stopped" });
@@ -214,7 +232,7 @@ export function stopCapture(tabId: string) {
   sessions.delete(tabId);
   unregisterCapture(tabId);
   clearInterval(s.timer);
-  s.stream.getTracks().forEach((t) => t.stop());
+  s.source.stop();
 }
 
 /** The cropped board as last captured, for a preview. */
@@ -227,24 +245,26 @@ export const unmatchedPlacement = (tabId: string) => sessions.get(tabId)?.placem
 export async function redetect(tabId: string): Promise<string | null> {
   const s = sessions.get(tabId);
   if (!s) return "Not capturing";
-  const r = await detectBoard(await grabFrame(s.video));
+  const r = await detectBoard(await grabFrame(s.source));
   if (!r.ok || !r.bbox) return r.error ?? "No board found";
   s.box = r.bbox;
   s.prev = s.sent = null;
   return null;
 }
 
-/** Share the screen again for a tab whose capture stopped (e.g. after a reload). */
-export async function resumeCapture(tabId: string): Promise<string | null> {
+/** Start again a tab whose capture stopped (e.g. after a reload), from the given frames or else a new share of the screen. */
+export async function resumeCapture(tabId: string, from?: FrameSource): Promise<string | null> {
   const t = useTabs.getState().tabs.find((x) => x.id === tabId);
-  if (!t) return null;
-  const stream = await shareScreen();
-  const video = await videoFor(stream);
-  const r = await detectBoard(await grabFrame(video));
+  if (!t) {
+    from?.stop();
+    return null;
+  }
+  const source = from ?? (await shareScreen());
+  const r = await detectBoard(await grabFrame(source)).catch((e) => ({ ok: false, error: String(e?.message || e), bbox: undefined }));
   if (!r.ok || !r.bbox) {
-    stream.getTracks().forEach((x) => x.stop());
+    source.stop();
     return r.error ?? "No board found on the shared screen";
   }
-  startCapture(tabId, stream, video, r.bbox, t.orientation === "white");
+  startCapture(tabId, source, r.bbox, t.orientation === "white");
   return null;
 }
