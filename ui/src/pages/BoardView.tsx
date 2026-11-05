@@ -87,6 +87,7 @@ function BoardLayout({ tab, play }: { tab: Tab; play?: ReturnType<typeof usePlay
   const puzzle = tab.type === "puzzle" ? tab.puzzle : undefined;
   const solving = puzzle?.status === "solving";
   const engineAllowed = !solving && !(puzzle?.status === "loading");
+  const sounds = tab.type !== "live" || settings.liveSound;
 
   const engineIds = useMemo(() => {
     const ids = settings.analysisEngines.filter((id) => engines.some((e) => e.id === id));
@@ -118,7 +119,7 @@ function BoardLayout({ tab, play }: { tab: Tab; play?: ReturnType<typeof usePlay
     if (puzzle) return puzzleMove(tab, uci);
     const r = addMove(g, uci);
     if (!r) return;
-    moveSound(r);
+    if (sounds) moveSound(r);
     setGame(() => r.game);
   };
 
@@ -126,7 +127,7 @@ function BoardLayout({ tab, play }: { tab: Tab; play?: ReturnType<typeof usePlay
     const next = fn(g);
     if (next.cursor !== g.cursor) {
       const n = next.nodes[next.cursor];
-      if (fn === goNext && n.san) moveSound({ capture: n.san.includes("x"), check: n.san.includes("+") || n.san.includes("#") });
+      if (sounds && fn === goNext && n.san) moveSound({ capture: n.san.includes("x"), check: n.san.includes("+") || n.san.includes("#") });
       setGame(() => next);
     }
   };

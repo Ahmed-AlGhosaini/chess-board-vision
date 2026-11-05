@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import subprocess
 import threading
 import time
 import uuid
@@ -109,6 +111,14 @@ registry = EngineRegistry()
 
 
 # ---------------------------------------------------------------- helpers
+
+def background_engine(path: str) -> chess.engine.SimpleEngine:
+    """An engine that uses whatever CPU is left: it must never hold up the board, the page or the
+    picture being read. On a machine that is otherwise idle it runs as fast as ever."""
+    if os.name == "nt":
+        return chess.engine.SimpleEngine.popen_uci(path, creationflags=subprocess.BELOW_NORMAL_PRIORITY_CLASS)
+    return chess.engine.SimpleEngine.popen_uci(["nice", "-n", "5", path] if shutil.which("nice") else path)
+
 
 def score_json(score: chess.engine.PovScore) -> dict:
     s = score.white()
@@ -241,7 +251,7 @@ class AnalysisSession:
             self.send({**base, "done": True, "gameOver": board.result(claim_draw=False), "lines": []})
             return
         if self.engine is None:
-            self.engine = chess.engine.SimpleEngine.popen_uci(registry.path(self.engine_id))
+            self.engine = background_engine(registry.path(self.engine_id))
         configure(self.engine, req, self.applied)
         multipv = max(1, min(int(req.get("multipv", 1)), board.legal_moves.count()))
         lines: dict[int, dict] = {}
@@ -249,7 +259,8 @@ class AnalysisSession:
         last_sent = 0.0
 
         def emit(done: bool):
-            ordered = [lines[k] for k in sorted(lines)]
+            ordered = [{**lines[k], "pv": [m.uci() for m in lines[k]["pv"]], "san": pv_san(board, lines[k]["pv"])}
+                       for k in sorted(lines)]
             self.send({**base, **stats, "done": done, "lines": ordered})
 
         with self.engine.analysis(board, make_limit(req.get("limit")), multipv=multipv) as an:
@@ -263,13 +274,11 @@ class AnalysisSession:
                         if k in info:
                             stats[k] = info[k]
                     if info.get("pv") and "score" in info and not (info.get("lowerbound") or info.get("upperbound")):
-                        pv = info["pv"]
                         lines[info.get("multipv", 1)] = {
                             "multipv": info.get("multipv", 1), "depth": info.get("depth", 0),
-                            "score": score_json(info["score"]),
-                            "pv": [m.uci() for m in pv], "san": pv_san(board, pv)}
+                            "score": score_json(info["score"]), "pv": info["pv"]}
                     now = time.monotonic()
-                    if lines and now - last_sent > 0.15:
+                    if lines and now - last_sent > 0.25:
                         emit(False)
                         last_sent = now
             finally:
@@ -321,7 +330,7 @@ class ReportJob:
             moves = [chess.Move.from_uci(u) for u in req.get("moves", [])]
             limit = make_limit(req.get("limit")) or chess.engine.Limit(depth=16)
             total = len(moves) + 1
-            with chess.engine.SimpleEngine.popen_uci(registry.path(req.get("engine", "stockfish"))) as eng:
+            with background_engine(registry.path(req.get("engine", "stockfish"))) as eng:
                 configure(eng, req, {})
                 for i in range(total):
                     if self.cancelled:
@@ -338,8 +347,10 @@ class ReportJob:
 # ---------------------------------------------------------------- live games
 
 class EvalQueue:
-    """Evaluate positions of a live game in arrival order, keeping one engine open.
+    """Evaluate positions of a live game, keeping one engine open.
 
+    The newest position goes first, as it is the one on the board; older ones are
+    then filled in from the start of the game whenever nothing newer is waiting.
     Runs beside the tab's AnalysisSession, so the engine lines on the current
     move are never interrupted by the per-move evaluations.
     """
@@ -347,6 +358,7 @@ class EvalQueue:
     def __init__(self, key: str, send: Send):
         self.key, self.send = key, send
         self.queue: deque[dict] = deque()
+        self.newest_waiting = False
         self.cancelled = False
         self.cv = threading.Condition()
         threading.Thread(target=self._run, daemon=True, name=f"eval-{key}").start()
@@ -354,7 +366,13 @@ class EvalQueue:
     def request(self, req: dict):
         with self.cv:
             self.queue.append(req)
+            self.newest_waiting = True
             self.cv.notify()
+
+    def clear(self):
+        """Forget what has not started, keeping the engine: the game on the board has changed."""
+        with self.cv:
+            self.queue.clear()
 
     def cancel(self):
         with self.cv:
@@ -372,20 +390,21 @@ class EvalQueue:
                         self.cv.wait()
                     if self.cancelled:
                         return
-                    req = self.queue.popleft()
+                    req = self.queue.pop() if self.newest_waiting else self.queue.popleft()
+                    self.newest_waiting = False
                 tag = req.get("tag")
                 try:
                     eid = req.get("engine", "stockfish")
                     if engine is None or eid != engine_id:
                         if engine is not None:
                             engine.quit()
-                        engine = chess.engine.SimpleEngine.popen_uci(registry.path(eid))
+                        engine = background_engine(registry.path(eid))
                         engine_id, applied = eid, {}
                     configure(engine, req, applied)
                     board = board_from(req.get("fen"), req.get("moves"))
                     res = evaluate(engine, board, make_limit(req.get("limit")) or chess.engine.Limit(depth=14), game=self)
                     if not self.cancelled:
-                        self.send({"type": "eval_result", "id": self.key, "tag": tag, **res})
+                        self.send({"type": "eval_result", "id": self.key, "tag": tag, "root": req.get("fen"), **res})
                 except Exception as ex:  # engine died, illegal move list, ...
                     self.send({"type": "eval_error", "id": self.key, "tag": tag, "message": f"{type(ex).__name__}: {ex}"})
                     if engine is not None:

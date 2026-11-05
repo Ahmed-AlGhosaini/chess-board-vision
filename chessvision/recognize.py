@@ -63,8 +63,8 @@ def crop_squares(img: Image.Image, geom: BoardGeometry) -> np.ndarray:
     return out
 
 
-def guess_white_at_bottom(grid: list[list[str | None]]) -> bool:
-    """Most of White's army (pawns weigh double) sits in the half nearest White."""
+def white_at_bottom_score(grid: list[list[str | None]]) -> float:
+    """Positive when the armies stand as if White were at the bottom: most of each on its own side (pawns weigh double)."""
     score = 0.0
     for r in range(8):
         for c in range(8):
@@ -74,7 +74,11 @@ def guess_white_at_bottom(grid: list[list[str | None]]) -> bool:
             w = 2.0 if p[1] == "P" else 1.0
             bottom = r >= 4
             score += w if (p[0] == "w") == bottom else -w
-    return score >= 0
+    return score
+
+
+def guess_white_at_bottom(grid: list[list[str | None]]) -> bool:
+    return white_at_bottom_score(grid) >= 0
 
 
 def grid_to_board(grid, white_at_bottom: bool, turn: chess.Color) -> chess.Board:

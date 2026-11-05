@@ -32,6 +32,7 @@ export interface Settings {
   showDests: boolean;
   showLastMove: boolean;
   sound: boolean;
+  liveSound: boolean; // sounds in live game tabs too (`sound` must be on as well)
   volume: number;
   autoQueen: boolean;
   figurine: boolean;
@@ -62,6 +63,7 @@ export const useSettings = create<Settings>()(
       showDests: true,
       showLastMove: true,
       sound: true,
+      liveSound: false,
       volume: 0.6,
       autoQueen: false,
       figurine: false,

@@ -1,5 +1,5 @@
-import { boardFen, dests, fenError, isPromotion, playUci, tryPos, turnOf } from "../chess/position";
-import { addLine, type GameState } from "../chess/tree";
+import { boardFen, fenError, movesBetween } from "../chess/position";
+import { addLine, knownNode, type GameState } from "../chess/tree";
 import { findInGame } from "../components/ImportModal";
 import { useTabs } from "../store/tabs";
 import { appendMoves, evaluate, isWatching, lastId, patchLive, registerCapture, resetGame, stopWatch, unregisterCapture } from "./watch";
@@ -41,42 +41,6 @@ function playable(fen: string): string | null {
   if (!fenError(fen)) return fen;
   const flipped = fen.replace(/ [wb] /, (m) => (m === " w " ? " b " : " w "));
   return fenError(flipped) ? null : flipped;
-}
-
-/** UCI moves leading from `fen` to the placement, at most two: a hidden page can skip one. */
-function movesBetween(fen: string, placement: string): string[] | null {
-  const legal = (f: string) => {
-    const pos = tryPos(f);
-    if (!pos) return [];
-    const out: { uci: string; fen: string }[] = [];
-    for (const [from, tos] of dests(pos)) {
-      for (const to of tos) {
-        for (const promo of isPromotion(f, from, to) ? ["q", "r", "b", "n"] : [""]) {
-          const played = playUci(f, from + to + promo);
-          if (played) out.push({ uci: played.uci, fen: played.fen });
-        }
-      }
-    }
-    return out;
-  };
-  const first = legal(fen);
-  const one = first.find((m) => boardFen(m.fen) === placement);
-  if (one) return [one.uci];
-  for (const m of first) {
-    const two = legal(m.fen).find((n) => boardFen(n.fen) === placement);
-    if (two) return [m.uci, two.uci];
-  }
-  return null;
-}
-
-/** The node showing this position, closest to the cursor. The side to move is only a
- * guess from the highlighted last move, so the placement alone counts if nothing matches fully. */
-function knownNode(g: GameState, fen: string): string | undefined {
-  const here = g.nodes[g.cursor];
-  const placement = boardFen(fen);
-  const same = Object.values(g.nodes).filter((n) => boardFen(n.fen) === placement)
-    .sort((a, b) => Math.abs(a.ply - here.ply) - Math.abs(b.ply - here.ply));
-  return (same.find((n) => turnOf(n.fen) === turnOf(fen)) ?? same[0])?.id;
 }
 
 /** Bring the tab to the position. False when it does not follow from the tab's game. */

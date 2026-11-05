@@ -1,22 +1,32 @@
-import { gameOutcome } from "../chess/position";
+import { boardFen, gameOutcome, movesBetween } from "../chess/position";
+import { isOnMainline, knownNode, type GameState } from "../chess/tree";
 import { api } from "../lib/api";
 import { useTabs } from "../store/tabs";
-import { appendMoves, lastId, patchLive, registerCapture, unregisterCapture } from "./watch";
+import { lastId, patchLive, playFrom, registerCapture, resetGame, restoreGame, unregisterCapture } from "./watch";
 
 /*
  * Screen capture as a live-game source: frames of a shared window or tab, or of a
- * browser tab sent by the extension (tabFrames.ts), are cropped to the board, and
- * whenever the board has changed and then settled, the crop goes to the server,
- * which reads it and finds the legal moves that lead from the game's last position
- * to what is on screen.
+ * browser tab sent by the extension (tabFrames.ts), are cropped to the board. As soon
+ * as the board changes, the crop goes to the server, which reads it (only the squares
+ * that changed) and looks for legal moves leading there from the position being followed.
+ *
+ * Moves are shown at once: a picture caught mid-animation matches no legal move, so
+ * there is no need to wait for the board to settle. A picture that follows from no move
+ * is believed once it has held still, and then the tab goes wherever the screen is: to
+ * that position in the game if it has one, or else to a new game from there. The screen
+ * is always right, whatever the moves that led to it; a commentator can step through a
+ * game, jump around or set up something else. Games left this way are kept, so that
+ * coming back to one of their positions brings back the game, with its moves.
  */
 
 export type Box = [number, number, number, number]; // x, y, w, h in picture pixels
 
 /** Where the frames come from. */
 export interface FrameSource {
-  image: HTMLVideoElement | HTMLCanvasElement; // always shows the current frame
+  image: HTMLVideoElement | HTMLImageElement; // always shows the current frame
   size: () => [number, number]; // of the current frame, zero until there is one
+  frames?: () => number; // how many have arrived, for a source too slow to tell a still picture from the time alone
+  onFrame?: (f: () => void) => void; // a source that sends frames now and then says when one is there, to look at it at once
   onEnded: (f: () => void) => void; // the other side stopped
   stop: () => void;
   session?: string; // a browser tab sent by the extension: its session, title and address
@@ -41,19 +51,24 @@ export interface VisionResult {
 interface TrackResult {
   status: "same" | "moves" | "unknown";
   moves: string[];
-  fen?: string;
+  fen?: string | null; // unknown: the position on screen, null if the picture shows none
   placement: string;
   uncertain: string[];
+  whiteAtBottom: boolean; // differs from what was asked when the view was found to be flipped
 }
 
-const TICK_MS = 400;
+const TICK_MS = 100;
 const THUMB = 32; // the board is compared between ticks as a 32x32 grey thumbnail (4x4 px per square)
 // A move changes only 2-4 of the 64 squares, so changes are measured per square:
 // a moved piece shifts its square's mean grey level by 25-40, video noise by 1-2.
-const CHANGED = 10;
+const CHANGED = 6;
+const REREAD_MS = 1000; // a read that changes nothing is cheap: also read every so often, in case a change went unnoticed
+const HOLD_MS = 300; // a picture that follows from no move must hold still this long (with a newer frame showing the same)
+const HOLD_LONG_MS = 800; // ... or this long, as a page that stands still sends no newer frames
+const LOST_MS = 1500; // how long a picture may show no position before the tab says so
+const DETECT_MS = 3000; // while it does, how often to look for the board elsewhere: it may have moved
 const FAILS_SHOWN = 3; // failed reads in a row before the error is shown in the tab
-const RETRY_MS = 1500; // an unreadable frame is tried again after this long
-const LOST_AFTER = 3; // unreadable reads in a row before the tab reports "lost track"
+const GAMES_KEPT = 8;
 
 interface Session {
   source: FrameSource;
@@ -61,15 +76,23 @@ interface Session {
   whiteAtBottom: boolean;
   crop: HTMLCanvasElement;
   thumb: CanvasRenderingContext2D;
-  timer: number;
-  prev: Uint8ClampedArray | null; // thumbnail at the last tick
+  stopTicks: () => void;
+  at: string; // the node showing what is on screen
+  prev: Uint8ClampedArray | null; // thumbnail of the current frame
+  frame: number; // and which frame that was, of a source that counts them
+  changedAt: number; // when the picture last changed
+  changedFrame: number; // and at which frame of the source
   sent: Uint8ClampedArray | null; // thumbnail last sent to the server
   busy: boolean;
   lastSent: number;
-  lastStatus: string;
-  unknown: number;
+  pending?: TrackResult; // the last read, of the picture now showing, if it followed from no move
+  unknownFen?: string | null; // the position such reads have been showing
+  unknownSince: number; // since when
+  lostSince: number; // since when the picture shows no position, 0 if it does
+  detecting: boolean;
+  lastDetect: number;
   failures: number; // reads in a row that failed (server error, network)
-  placement?: string; // the last board that could not be matched, for "resync"
+  games: GameState[]; // earlier games on this screen
 }
 
 const sessions = new Map<string, Session>();
@@ -78,7 +101,7 @@ export const captureSupported = () => !!navigator.mediaDevices?.getDisplayMedia;
 
 /** Ask the browser to share a window or tab, and start playing it. */
 export async function shareScreen(): Promise<FrameSource> {
-  const stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 5, max: 10 } }, audio: false });
+  const stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 15, max: 30 } }, audio: false });
   const v = await videoFor(stream);
   return {
     image: v,
@@ -136,73 +159,174 @@ function diff(a: Uint8ClampedArray, b: Uint8ClampedArray): number {
   return max;
 }
 
-const lastFen = (tabId: string) => {
-  const t = useTabs.getState().tabs.find((x) => x.id === tabId);
-  return t ? t.game.nodes[lastId(t.game)].fen : null;
-};
+/** Calls `f` every `ms`, also while this page is in the background, where the browser slows down its own timers. */
+function steadily(f: () => void, ms: number): () => void {
+  try {
+    const url = URL.createObjectURL(new Blob([`setInterval(() => postMessage(0), ${ms})`], { type: "text/javascript" }));
+    const worker = new Worker(url);
+    worker.onmessage = f;
+    return () => {
+      worker.terminate();
+      URL.revokeObjectURL(url);
+    };
+  } catch {
+    const timer = window.setInterval(f, ms);
+    return () => clearInterval(timer);
+  }
+}
+
+const tabOf = (tabId: string) => useTabs.getState().tabs.find((x) => x.id === tabId);
+
+/** The screen is back to something that makes sense: leave any state that said otherwise. */
+function settle(tabId: string, s: Session) {
+  s.pending = s.unknownFen = undefined;
+  s.lostSince = 0;
+  const t = tabOf(tabId);
+  if (!t?.live) return;
+  const over = isOnMainline(t.game, s.at) ? gameOutcome(t.game.nodes[s.at].fen) : null;
+  if (over) {
+    if (t.live.status === "ended" && t.live.reason === over.reason) return;
+    useTabs.getState().updateTab(tabId, (x) => ({ game: { ...x.game, headers: { ...x.game.headers, Result: over.result } } }));
+    patchLive(tabId, { status: "ended", reason: over.reason });
+  } else if (t.live.status === "lost-sync" || t.live.status === "ended") {
+    if (t.live.status === "ended") useTabs.getState().updateTab(tabId, (x) => ({ game: { ...x.game, headers: { ...x.game.headers, Result: "*" } } }));
+    patchLive(tabId, { status: "live", reason: undefined });
+  }
+}
+
+function turnBoard(tabId: string, s: Session, whiteAtBottom: boolean) {
+  if (s.whiteAtBottom === whiteAtBottom) return;
+  s.whiteAtBottom = whiteAtBottom;
+  useTabs.getState().updateTab(tabId, () => ({ orientation: whiteAtBottom ? "white" : "black" }));
+}
 
 async function read(tabId: string, s: Session) {
-  const fen = lastFen(tabId);
-  if (!fen) return;
+  const t = tabOf(tabId);
+  if (!t) return;
+  if (!t.game.nodes[s.at]) s.at = lastId(t.game); // the game was replaced by hand
+  const fen = t.game.nodes[s.at].fen;
   const blob = await new Promise<Blob | null>((r) => s.crop.toBlob(r, "image/jpeg", 0.92));
   if (!blob) return;
-  const q = new URLSearchParams({ fen, orientation: s.whiteAtBottom ? "white" : "black" });
+  const q = new URLSearchParams({ fen, orientation: s.whiteAtBottom ? "white" : "black", session: tabId });
   const r = await api<TrackResult>(`/api/vision/track?${q}`, { method: "POST", body: blob, headers: { "Content-Type": "application/octet-stream" } });
   if (sessions.get(tabId) !== s) return; // stopped meanwhile
   if (s.failures >= FAILS_SHOWN) patchLive(tabId, { error: undefined });
   s.failures = 0;
-  if (lastFen(tabId) !== fen) {
-    s.sent = null; // the game changed while this frame was read (e.g. a resync): read again
+  if (tabOf(tabId)?.game.nodes[s.at]?.fen !== fen) {
+    s.sent = null; // the game changed while this frame was read (e.g. the side to move was switched): read again
     return;
   }
-  s.lastStatus = r.status;
   if (r.status === "unknown") {
-    s.unknown++;
-    s.placement = r.placement;
-    if (s.unknown === LOST_AFTER) patchLive(tabId, { status: "lost-sync" });
+    if (r.fen !== s.unknownFen) {
+      s.unknownFen = r.fen;
+      s.unknownSince = performance.now();
+    }
+    s.pending = r;
     return;
   }
-  const live = useTabs.getState().tabs.find((x) => x.id === tabId)?.live;
-  if (s.unknown >= LOST_AFTER && live?.status === "lost-sync") patchLive(tabId, { status: "live" });
-  s.unknown = 0;
+  turnBoard(tabId, s, r.whiteAtBottom);
   if (r.status === "moves") {
-    appendMoves(tabId, r.moves.map((uci) => ({ uci })));
-    const over = r.fen ? gameOutcome(r.fen) : null;
-    if (over) {
-      useTabs.getState().updateTab(tabId, (t) => ({ game: { ...t.game, headers: { ...t.game.headers, Result: over.result } } }));
-      patchLive(tabId, { status: "ended", reason: over.reason });
-    }
+    const added = playFrom(tabId, s.at, r.moves.map((uci) => ({ uci })));
+    if (added.length) s.at = added[added.length - 1];
+  }
+  settle(tabId, s);
+}
+
+/** The picture has held still, follows from no move, and shows this position: go there. */
+function jumpTo(tabId: string, s: Session, fen: string) {
+  const t = tabOf(tabId);
+  if (!t) return;
+  const g = t.game;
+  const known = knownNode(g, fen, s.at);
+  if (known) { // stepping back through the game
+    const follow = g.cursor === s.at;
+    s.at = known;
+    if (follow) useTabs.getState().updateGame(tabId, (x) => ({ ...x, cursor: known }));
+    return;
+  }
+  const end = lastId(g);
+  const moves = end === s.at ? null : movesBetween(g.nodes[end].fen, boardFen(fen)); // back to the game after a detour
+  if (moves) {
+    if (g.cursor === s.at) useTabs.getState().updateGame(tabId, (x) => ({ ...x, cursor: end }));
+    const added = playFrom(tabId, end, moves.map((uci) => ({ uci })));
+    s.at = added.length ? added[added.length - 1] : end;
+    return;
+  }
+  if (g.nodes[g.root].children.length) s.games = [g, ...s.games].slice(0, GAMES_KEPT);
+  const earlier = s.games.findIndex((x) => x !== g && knownNode(x, fen));
+  if (earlier >= 0) {
+    const game = s.games[earlier];
+    s.games = s.games.filter((x) => x !== game);
+    s.at = knownNode(game, fen)!;
+    restoreGame(tabId, { ...game, cursor: s.at });
+    return;
+  }
+  resetGame(tabId, fen, g.headers.Event ? { Event: g.headers.Event } : {});
+  s.at = tabOf(tabId)!.game.root;
+}
+
+/** The last read has been showing for a while now, and it follows from no move. */
+function believe(tabId: string, s: Session, now: number) {
+  const r = s.pending!;
+  if (r.fen) {
+    turnBoard(tabId, s, r.whiteAtBottom);
+    jumpTo(tabId, s, r.fen);
+    settle(tabId, s);
+    return;
+  }
+  // no position in this picture: covered, or the board is somewhere else by now
+  if (!s.lostSince) s.lostSince = now;
+  if (now - s.lostSince < LOST_MS) return;
+  if (tabOf(tabId)?.live?.status !== "lost-sync") patchLive(tabId, { status: "lost-sync" });
+  if (!s.detecting && now - s.lastDetect > DETECT_MS) {
+    s.lastDetect = now;
+    void redetect(tabId).catch(() => null);
   }
 }
 
 function tick(tabId: string, s: Session) {
-  if (s.busy || !s.source.size()[0]) return;
+  if (!s.source.size()[0]) return;
   const [x, y, w, h] = s.box;
-  const size = Math.max(64, Math.min(512, Math.round(w)));
-  if (s.crop.width !== size) s.crop.width = s.crop.height = size;
-  s.crop.getContext("2d")!.drawImage(s.source.image, x, y, w, h, 0, 0, size, size);
-  s.thumb.drawImage(s.crop, 0, 0, THUMB, THUMB);
-  const px = grey(s.thumb.getImageData(0, 0, THUMB, THUMB).data);
-  const moving = s.prev !== null && diff(px, s.prev) > CHANGED;
-  s.prev = px;
-  if (moving) return; // wait until the board has settled (piece animations, drags)
-  const fresh = !s.sent || diff(px, s.sent) > CHANGED;
-  const retry = s.lastStatus === "unknown" && performance.now() - s.lastSent > RETRY_MS;
-  if (!fresh && !retry) return;
-  s.busy = true;
-  s.sent = px;
-  s.lastSent = performance.now();
-  read(tabId, s)
-    .catch((e) => {
-      s.lastStatus = "unknown"; // try this frame again shortly
-      s.failures++;
-      console.warn("live capture:", e);
-      if (s.failures === FAILS_SHOWN && sessions.get(tabId) === s)
-        patchLive(tabId, { error: `Could not read the board: ${e?.message || e}` });
-    })
-    .finally(() => {
-      s.busy = false;
-    });
+  const now = performance.now();
+  const frame = s.source.frames?.() ?? 0;
+  if (!s.prev || !s.source.frames || frame !== s.frame) {
+    s.frame = frame;
+    s.thumb.drawImage(s.source.image, x, y, w, h, 0, 0, THUMB, THUMB);
+    const fresh = grey(s.thumb.getImageData(0, 0, THUMB, THUMB).data);
+    if (s.prev && diff(fresh, s.prev) > CHANGED) {
+      s.changedAt = now;
+      s.changedFrame = frame;
+    }
+    s.prev = fresh;
+  }
+  const px = s.prev;
+  if (s.busy) return;
+  // the picture will not hold still (a mouse pointer over the board, say) but keeps showing this position
+  if (s.pending?.fen && now - s.unknownSince >= HOLD_LONG_MS) return believe(tabId, s, now);
+  if (!s.sent || diff(px, s.sent) > CHANGED || now - s.lastSent > REREAD_MS) {
+    s.pending = undefined; // it was about another picture, or is about to be confirmed
+    const size = Math.max(64, Math.min(512, Math.round(w)));
+    if (s.crop.width !== size) s.crop.width = s.crop.height = size;
+    s.crop.getContext("2d")!.drawImage(s.source.image, x, y, w, h, 0, 0, size, size);
+    s.busy = true;
+    s.sent = px;
+    s.lastSent = now;
+    read(tabId, s)
+      .catch((e) => {
+        s.failures++;
+        console.warn("live capture:", e);
+        if (s.failures === FAILS_SHOWN && sessions.get(tabId) === s)
+          patchLive(tabId, { error: `Could not read the board: ${e?.message || e}` });
+      })
+      .finally(() => {
+        s.busy = false;
+        // a frame that came meanwhile, such as the end of the animation this one caught, does not wait for the next tick
+        if (sessions.get(tabId) === s) tick(tabId, s);
+      });
+    return;
+  }
+  const still = now - s.changedAt;
+  if (s.pending && (still >= HOLD_LONG_MS || (still >= HOLD_MS && (!s.source.frames || frame > s.changedFrame)))) believe(tabId, s, now);
 }
 
 /** Follow the board inside `box` of a shared screen in the given live tab. */
@@ -212,10 +336,12 @@ export function startCapture(tabId: string, source: FrameSource, box: Box, white
   thumbCanvas.width = thumbCanvas.height = THUMB;
   const s: Session = {
     source, box, whiteAtBottom, crop: document.createElement("canvas"),
-    thumb: thumbCanvas.getContext("2d", { willReadFrequently: true })!, timer: 0,
-    prev: null, sent: null, busy: false, lastSent: 0, lastStatus: "", unknown: 0, failures: 0,
+    thumb: thumbCanvas.getContext("2d", { willReadFrequently: true })!, stopTicks: () => {},
+    at: lastId(tabOf(tabId)!.game), prev: null, frame: 0, changedAt: 0, changedFrame: 0, sent: null, busy: false, lastSent: 0,
+    unknownSince: 0, lostSince: 0, detecting: false, lastDetect: 0, failures: 0, games: [],
   };
-  s.timer = window.setInterval(() => tick(tabId, s), TICK_MS);
+  s.stopTicks = steadily(() => tick(tabId, s), TICK_MS);
+  source.onFrame?.(() => tick(tabId, s));
   sessions.set(tabId, s);
   registerCapture(tabId, () => stopCapture(tabId));
   source.onEnded(() => {
@@ -231,25 +357,32 @@ export function stopCapture(tabId: string) {
   if (!s) return;
   sessions.delete(tabId);
   unregisterCapture(tabId);
-  clearInterval(s.timer);
+  s.stopTicks();
   s.source.stop();
 }
 
-/** The cropped board as last captured, for a preview. */
+/** The cropped board as last read, for a preview. */
 export const captureCanvas = (tabId: string) => sessions.get(tabId)?.crop ?? null;
 
-/** The last board on screen that did not follow from the game (offered as a new start). */
-export const unmatchedPlacement = (tabId: string) => sessions.get(tabId)?.placement;
+/** The node showing what is on screen. */
+export const followedNode = (tabId: string) => sessions.get(tabId)?.at;
 
 /** Find the board again (it moved or was resized on screen). Returns an error message or null. */
 export async function redetect(tabId: string): Promise<string | null> {
   const s = sessions.get(tabId);
   if (!s) return "Not capturing";
-  const r = await detectBoard(await grabFrame(s.source));
-  if (!r.ok || !r.bbox) return r.error ?? "No board found";
-  s.box = r.bbox;
-  s.prev = s.sent = null;
-  return null;
+  s.detecting = true;
+  try {
+    const r = await detectBoard(await grabFrame(s.source));
+    if (!r.ok || !r.bbox) return r.error ?? "No board found";
+    if (r.bbox.some((v, i) => Math.abs(v - s.box[i]) > 1)) {
+      s.box = r.bbox;
+      s.prev = s.sent = null;
+    }
+    return null;
+  } finally {
+    s.detecting = false;
+  }
 }
 
 /** Start again a tab whose capture stopped (e.g. after a reload), from the given frames or else a new share of the screen. */

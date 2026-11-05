@@ -156,6 +156,32 @@ export function boardFen(fen: string) {
   return fen.split(" ")[0];
 }
 
+/** UCI moves leading from `fen` to the placement, at most two: a hidden page can skip one. */
+export function movesBetween(fen: string, placement: string): string[] | null {
+  const legal = (f: string) => {
+    const pos = tryPos(f);
+    if (!pos) return [];
+    const out: { uci: string; fen: string }[] = [];
+    for (const [from, tos] of dests(pos)) {
+      for (const to of tos) {
+        for (const promo of isPromotion(f, from, to) ? ["q", "r", "b", "n"] : [""]) {
+          const played = playUci(f, from + to + promo);
+          if (played) out.push({ uci: played.uci, fen: played.fen });
+        }
+      }
+    }
+    return out;
+  };
+  const first = legal(fen);
+  const one = first.find((m) => boardFen(m.fen) === placement);
+  if (one) return [one.uci];
+  for (const m of first) {
+    const two = legal(m.fen).find((n) => boardFen(n.fen) === placement);
+    if (two) return [m.uci, two.uci];
+  }
+  return null;
+}
+
 /** Material difference per side, for the captured-pieces strip. */
 export function materialDiff(fen: string): Record<Color, Partial<Record<Role, number>>> & { score: number } {
   const counts: Record<string, number> = {};

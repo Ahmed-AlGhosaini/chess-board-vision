@@ -34,6 +34,9 @@ const TV_CHANNELS = [
   { url: "https://lichess.org/tv/classical", label: "Classical" },
 ];
 
+const FIND_RETRY_MS = 1500;
+const FIND_RETRIES = 20;
+
 export function LiveSetup() {
   const open = useUi((s) => s.liveOpen);
   const setOpen = useUi((s) => s.setLiveOpen);
@@ -142,6 +145,7 @@ function CaptureForm({ onDone }: { onDone: () => void }) {
   const setTabOffer = useUi((s) => s.setTabOffer);
   const [source, setSource] = useState<FrameSource | null>(null);
   const started = useRef(false);
+  const retries = useRef(0);
   const [frame, setFrame] = useState<Blob | null>(null);
   const [frameUrl, setFrameUrl] = useState<string | null>(null);
   const [result, setResult] = useState<VisionResult | null>(null);
@@ -198,6 +202,7 @@ function CaptureForm({ onDone }: { onDone: () => void }) {
   };
 
   const adopt = async (s: FrameSource) => {
+    retries.current = 0;
     setSource(s);
     s.onEnded(() => {
       if (started.current) return;
@@ -223,6 +228,17 @@ function CaptureForm({ onDone }: { onDone: () => void }) {
     void tabSource(offer).then((s) => (s ? adopt(s) : setTabOffer(null))).catch((e) => setError(e.message || String(e)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [offer]);
+
+  // no board in this frame: the page may still be loading, or a video not showing it yet, so keep looking
+  useEffect(() => {
+    if (!source || loading || !result || result.ok || retries.current >= FIND_RETRIES) return;
+    const t = setTimeout(() => {
+      retries.current++;
+      void snap();
+    }, FIND_RETRY_MS);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [source, loading, result]);
 
   const setOrientation = (wab: boolean) => {
     setWhiteAtBottom(wab);
@@ -265,7 +281,7 @@ function CaptureForm({ onDone }: { onDone: () => void }) {
       <Stack align="flex-start">
         <Text size="sm" c="dimmed">
           Follow a game shown anywhere on your screen: a stream on Twitch or YouTube, Chess.com, another app. Share the window or browser
-          tab with the board; the app finds the board, reads it whenever it changes and works out the moves played.
+          tab with the board; the app finds the board, reads it as soon as it changes and works out the moves played.
           Works with 2D boards seen straight on, like screenshots.
         </Text>
         <Button leftSection={<IconScreenShare size={16} />} onClick={share}>Choose a window or tab to share</Button>
@@ -292,8 +308,11 @@ function CaptureForm({ onDone }: { onDone: () => void }) {
               <Button size="compact-xs" variant="default" leftSection={<IconRefresh size={12} />} onClick={() => snap()} disabled={loading}>New frame</Button>
             </Group>
           </Group>
-          <BoardBox src={frameUrl} size={result ?? undefined} bbox={result?.bbox} unsure={unsure} cropMode={cropMode} loading={loading}
-            onSelect={(box) => frame && void read(frame, box)} />
+          {/* selecting the board by hand: the picture must stop changing under the pointer */}
+          <div onPointerDown={() => { retries.current = FIND_RETRIES; }}>
+            <BoardBox src={frameUrl} size={result ?? undefined} bbox={result?.bbox} unsure={unsure} cropMode={cropMode} loading={loading}
+              onSelect={(box) => frame && void read(frame, box)} />
+          </div>
           {error && <Alert color="red" icon={<IconAlertTriangle size={16} />}>{error}</Alert>}
           {result && !result.ok && <Alert color="orange" icon={<IconAlertTriangle size={16} />}>{result.error}</Alert>}
           {result?.ok && (
@@ -314,7 +333,7 @@ function CaptureForm({ onDone }: { onDone: () => void }) {
             </div>
             {editor.placement !== START_PLACEMENT && <TurnNote result={result} turn={editor.turn} whiteAtBottom={whiteAtBottom} />}
             <Text size="xs" c="dimmed">
-              Check the position and whose move it is. From here on, every change on screen is matched against the legal moves.
+              Check the position and whose move it is. From here on, the board follows the screen: changes are matched against the legal moves, and whatever else appears is shown as it is.
             </Text>
             {problem && <Text size="xs" c="red">{problem}</Text>}
             <Group>

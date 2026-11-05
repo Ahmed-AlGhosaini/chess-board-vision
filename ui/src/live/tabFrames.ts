@@ -23,12 +23,14 @@ interface Session {
   seq: number;
   seen: number; // Date.now() of the last message
   latest: string; // the last picture that arrived
-  shown: string; // the one on the canvas
-  drawing: boolean;
-  canvas: HTMLCanvasElement;
+  shown: string; // the one in `picture`
+  decoded: number; // how many pictures there have been
+  onDecoded?: () => void;
+  decoding: boolean;
+  picture: HTMLImageElement;
   title: string;
   url: string;
-  owner: FrameSource | null; // who is reading the canvas: the dialog or a capture
+  owner: FrameSource | null; // who is reading the pictures: the dialog or a capture
   held: boolean; // the dialog was closed or Stop pressed: leave it alone while the tab stays chosen
   ended: (() => void)[];
 }
@@ -36,9 +38,9 @@ interface Session {
 const STALE_MS = 20_000; // the extension repeats a picture every 5 seconds
 const sessions = new Map<string, Session>();
 
-async function draw(s: Session) {
-  if (s.drawing) return;
-  s.drawing = true;
+async function decode(s: Session) {
+  if (s.decoding) return;
+  s.decoding = true;
   try {
     while (s.shown !== s.latest) {
       const url = s.latest;
@@ -46,17 +48,15 @@ async function draw(s: Session) {
       img.src = url;
       await img.decode();
       s.shown = url;
-      if (s.canvas.width !== img.naturalWidth || s.canvas.height !== img.naturalHeight) {
-        s.canvas.width = img.naturalWidth;
-        s.canvas.height = img.naturalHeight;
-      }
-      s.canvas.getContext("2d")!.drawImage(img, 0, 0);
+      s.picture = img;
+      s.decoded++;
+      s.onDecoded?.();
     }
   } catch (e) {
     s.shown = s.latest; // the next picture will do
     console.warn("tab frames:", e);
   } finally {
-    s.drawing = false;
+    s.decoding = false;
   }
 }
 
@@ -65,12 +65,19 @@ export async function tabSource(session: string): Promise<FrameSource | null> {
   const s = sessions.get(session);
   if (!s) return null;
   const source: FrameSource = {
-    image: s.canvas,
-    size: () => [s.canvas.width, s.canvas.height],
+    get image() {
+      return s.picture;
+    },
+    size: () => [s.picture.naturalWidth, s.picture.naturalHeight],
+    frames: () => s.decoded,
+    onFrame: (f) => {
+      s.onDecoded = f;
+    },
     onEnded: (f) => s.ended.push(f),
     stop: () => {
       if (s.owner !== source) return;
       s.owner = null;
+      s.onDecoded = undefined;
       s.held = true;
       s.ended = [];
       clearOffer(session);
@@ -79,7 +86,7 @@ export async function tabSource(session: string): Promise<FrameSource | null> {
   };
   s.owner = source;
   s.held = false;
-  await draw(s);
+  await decode(s);
   return source;
 }
 
@@ -114,7 +121,7 @@ export function onFramePush(p: FramePush) {
   let s = sessions.get(p.session);
   if (!s) {
     if (p.stop) return;
-    s = { seq: 0, seen: 0, latest: "", shown: "", drawing: false, canvas: document.createElement("canvas"), title: "", url: "", owner: null, held: false, ended: [] };
+    s = { seq: 0, seen: 0, latest: "", shown: "", decoded: 0, decoding: false, picture: new Image(), title: "", url: "", owner: null, held: false, ended: [] };
     sessions.set(p.session, s);
   }
   if (p.seq <= s.seq) return; // requests can overtake each other
@@ -124,7 +131,7 @@ export function onFramePush(p: FramePush) {
   s.latest = p.image;
   s.title = p.title;
   s.url = p.url;
-  if (s.owner) void draw(s);
+  if (s.owner) void decode(s);
   else if (!s.held && !useUi.getState().tabOffer) claim(p.session);
 }
 

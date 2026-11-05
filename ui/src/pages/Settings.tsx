@@ -75,6 +75,9 @@ export function SettingsPage() {
             <Title order={4} mb="xs">Board behaviour</Title>
             <Row label="Always promote to queen"><Switch checked={s.autoQueen} onChange={(e) => s.set({ autoQueen: e.currentTarget.checked })} /></Row>
             <Row label="Sounds"><Switch checked={s.sound} onChange={(e) => s.set({ sound: e.currentTarget.checked })} /></Row>
+            <Row label="Sounds in live games" description="Off keeps the board following a live game as light as possible">
+              <Switch checked={s.liveSound} disabled={!s.sound} onChange={(e) => s.set({ liveSound: e.currentTarget.checked })} />
+            </Row>
             <Row label="Volume"><Slider w={180} min={0} max={1} step={0.05} value={s.volume} onChange={(v) => s.set({ volume: v })} label={(v) => `${Math.round(v * 100)}%`} /></Row>
           </Card>
           <Card withBorder radius="md">

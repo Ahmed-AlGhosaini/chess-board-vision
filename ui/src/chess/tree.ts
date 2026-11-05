@@ -1,4 +1,4 @@
-import { INITIAL_FEN, playUci, plyOf, positionKey } from "./position";
+import { boardFen, INITIAL_FEN, playUci, plyOf, positionKey, turnOf } from "./position";
 import type { Score } from "./eval";
 
 export interface Shape {
@@ -196,6 +196,16 @@ export function goSibling(g: GameState, dir: 1 | -1): GameState {
   const i = sibs.indexOf(n.id);
   const j = (i + dir + sibs.length) % sibs.length;
   return { ...g, cursor: sibs[j] };
+}
+
+/** The node showing this position, closest to `near`. The side to move on a watched board is only a
+ * guess, so the placement alone counts if nothing matches fully. */
+export function knownNode(g: GameState, fen: string, near: string = g.cursor): string | undefined {
+  const here = g.nodes[near];
+  const placement = boardFen(fen);
+  const same = Object.values(g.nodes).filter((n) => boardFen(n.fen) === placement)
+    .sort((a, b) => Math.abs(a.ply - here.ply) - Math.abs(b.ply - here.ply));
+  return (same.find((n) => turnOf(n.fen) === turnOf(fen)) ?? same[0])?.id;
 }
 
 /** Threefold repetition along the path to `id`. */

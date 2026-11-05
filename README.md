@@ -114,14 +114,31 @@ any time; **Jump to live** returns to the newest move.
 | Lichess game | Paste a game link (`lichess.org/abcd1234`). The server reads Lichess's game stream; moves and clocks are exact. |
 | Lichess broadcast | Paste a broadcast round (or tournament) link and pick one of its games. |
 | Lichess TV | Top rated, blitz, rapid or classical; moves on to the channel's next game when one ends. |
-| Screen capture | Share a window or tab showing a 2D board (a Twitch/YouTube stream, Chess.com, any app). The board is found as in screenshot import, then read each time it changes and settles; the moves are found by matching the picture against the legal moves (two plies, if a frame was missed). |
+| Screen capture | Share a window or tab showing a 2D board (a Twitch/YouTube stream, Chess.com, any app). The board is found as in screenshot import, then read as soon as it changes (only the squares that changed); the moves are found by matching the picture against the legal moves (two plies, if a frame was missed), and the board follows the screen even when no legal move leads there. |
 | Firefox extension | Follows the board in the Firefox tabs you choose, with one chessvision tab per Firefox tab. Lichess tabs (games, TV, analysis, studies, broadcasts, puzzles) are read directly, other tabs from a picture as in screen capture: see below. |
 
 Lichess shows other people's games with a short delay, and broadcasts arrive as fast as the
 tournament relays them. Screen capture has the same limits as screenshots (2D boards seen
-straight on). If the board moves on screen, use **Find board again**. If moves were missed or a
-new game started, the tab shows *Lost track* and offers to restart from the position on
-screen. The per-move depth is set in **Settings → Analysis → Live game depth**.
+straight on). The per-move depth is set in **Settings → Analysis → Live game depth**. Live game
+tabs are silent unless **Settings → Board behaviour → Sounds in live games** is on.
+
+The board comes first in a screen capture: the engines run at low priority and never hold it up,
+and a position they have not got to yet is simply evaluated later, newest first. Whatever the
+screen shows is followed, without any button to press:
+
+* A legal move, or two if a frame was missed, is added to the game straight away. One misread
+  square is forgiven, as a blurred video can make a piece look like another for a while.
+* A position the game has been through moves the board back there, for a commentator stepping
+  through a game. A line that leaves the game's position becomes a variation.
+* Anything else (several moves at once, a move that makes no sense, a new game, a board flipped to
+  the other side) must hold still for a moment, so that a passing animation is not taken for it, and
+  then the tab starts a new game from there. The earlier game is kept, and comes back with its moves
+  when the screen returns to one of its positions (the last 8 games, while the capture runs).
+* The side to move of such a position comes from the highlighted last move, or else the colours of
+  the pieces that moved. It corrects itself with the next move; **Switch side** changes it sooner.
+* A picture with no position in it leaves the board as it is, and the tab shows *Board not visible*
+  until there is one again. Meanwhile the board is looked for elsewhere on the screen, in case it has
+  moved; **Find board again** does this at any time.
 
 ### Firefox extension
 
@@ -136,8 +153,8 @@ whether moves are played or stepped through, and following carries on when the t
 game. Small preview boards (game lists, the home page) are ignored, and so is a game you are
 playing yourself until it ends, as engine help during your own game is against Lichess's rules.
 
-**Other tabs** (Chess.com, a Twitch or YouTube stream) are sent as pictures, twice a second when
-they change, to the app on this computer and nowhere else. Choosing one opens the screen capture
+**Other tabs** (Chess.com, a Twitch or YouTube stream) are sent as pictures, several times a second
+when they change, to the app on this computer and nowhere else. Choosing one opens the screen capture
 dialog in the app without asking to share the screen: check the position there and start watching.
 The limits of screen capture apply (2D boards seen straight on), and it cannot tell that a game is
 your own, so do not use it on games you are playing. **In a background tab, Firefox freezes videos**

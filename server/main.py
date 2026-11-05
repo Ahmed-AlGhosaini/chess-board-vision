@@ -85,8 +85,11 @@ async def recognize(request: Request, bbox: str | None = None, turn: str = "auto
 
 
 @app.post("/api/vision/track")
-async def track(request: Request, fen: str, orientation: str = "white", bbox: str | None = None):
-    """One frame of a screen capture (usually just the board) -> moves played since `fen`."""
+async def track(request: Request, fen: str, orientation: str = "white", bbox: str | None = None, session: str | None = None):
+    """One frame of a screen capture (usually just the board) -> moves played since `fen`.
+
+    Frames of one `session` show the same board, so only the squares that changed are read again.
+    """
     data = await request.body()
     if not data:
         raise HTTPException(400, "Empty upload")
@@ -96,7 +99,7 @@ async def track(request: Request, fen: str, orientation: str = "white", bbox: st
     if orientation not in ("white", "black"):
         raise HTTPException(400, "orientation must be white or black")
     try:
-        return await asyncio.to_thread(vision.track_frame, data, box, orientation, fen)
+        return await asyncio.to_thread(vision.track_frame, data, box, orientation, fen, session=session)
     except OSError as ex:
         raise HTTPException(400, f"Not an image the server can read ({ex})")
 
@@ -147,11 +150,11 @@ async def engine_socket(ws: WebSocket):
     client -> {type: analyze, id, token, engine, fen, moves, multipv, threads, hash, options, limit}
               {type: stop|close, id}   {type: report, id, engine, fen, moves, limit}   {type: report_cancel, id}
               {type: live_start, id, url, round?, game?, token?}   {type: live_stop, id}
-              {type: eval, id, tag, engine, fen, moves, limit, ...}   {type: eval_cancel, id}
+              {type: eval, id, tag, engine, fen, moves, limit, ...}   {type: eval_cancel|eval_clear, id}
     server -> {type: analysis, id, token, depth, nodes, nps, lines: [...], done}
               {type: report_progress|report_done|report_error|error, id, ...}
               {type: live_game|live_move|live_status|live_end|live_error, id, ...}  (see server/live.py)
-              {type: eval_result|eval_error, id, tag, ...}
+              {type: eval_result|eval_error, id, tag, root?, ...}
               {type: push, id: "push", session, seq, fen, orientation, url, stop}  (browser extension, see /push/live)
               {type: frame, id: "push", session, seq, image, title, url, stop}  (browser extension, see /push/frame)
     """
@@ -162,16 +165,26 @@ async def engine_socket(ws: WebSocket):
     reports: dict[str, engines.ReportJob] = {}
     watches: dict[str, live.LiveWatch] = {}
     evals: dict[str, engines.EvalQueue] = {}
+    frames: dict[str, dict] = {}  # session -> the newest picture not yet sent
+
+    def enqueue(msg: dict):
+        # a picture that has not gone out yet is replaced by a newer one: a slow page gets the latest, not a backlog
+        if msg.get("type") == "frame" and not msg.get("stop"):
+            if msg["session"] not in frames:
+                outbox.put_nowait({"frame": msg["session"]})
+            frames[msg["session"]] = msg
+        else:
+            outbox.put_nowait(msg)
 
     def send(msg: dict):
-        loop.call_soon_threadsafe(outbox.put_nowait, msg)
+        loop.call_soon_threadsafe(enqueue, msg)
 
     push_targets.append(send)
 
     async def pump():
         while True:
             msg = await outbox.get()
-            await ws.send_json(msg)
+            await ws.send_json(frames.pop(msg["frame"]) if "frame" in msg else msg)
 
     sender = asyncio.create_task(pump())
     try:
@@ -207,6 +220,8 @@ async def engine_socket(ws: WebSocket):
                 evals[key].request(msg)
             elif kind == "eval_cancel" and key in evals:
                 evals.pop(key).cancel()
+            elif kind == "eval_clear" and key in evals:
+                evals[key].clear()
     except WebSocketDisconnect:
         pass
     finally:

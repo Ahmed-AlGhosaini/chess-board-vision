@@ -14,7 +14,7 @@
 
 const DEFAULTS = { app: "http://127.0.0.1:8765" };
 const HEARTBEAT_MS = 5000;
-const FRAME_MS = 500;
+const FRAME_MS = 150; // at most this often: the next picture is taken only once the last one has been delivered
 const RUN = Date.now().toString(36); // tab ids repeat after a restart: an old capture is not resumed by a new tab
 
 let settings = { ...DEFAULTS };

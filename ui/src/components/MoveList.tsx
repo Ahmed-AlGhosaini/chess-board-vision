@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useEffect, useRef, useState, type ReactNode } from "react";
 import { Menu, ScrollArea, Text } from "@mantine/core";
 import { IconArrowUp, IconArrowBarToUp, IconCopy, IconCut, IconTrash } from "@tabler/icons-react";
 import { nagInfo } from "../chess/eval";
@@ -16,7 +16,13 @@ export interface MoveListActions {
   onCopyLine?: (id: string) => void;
 }
 
-export function MoveList({ game, actions, result }: { game: GameState; actions: MoveListActions; result?: string }) {
+type MoveListProps = { game: GameState; actions: MoveListActions; result?: string };
+
+/** Not drawn again for what happens around it, like each update of the engine panel. The actions depend on no more than this. */
+export const MoveList = memo(MoveListView, (a: MoveListProps, b: MoveListProps) =>
+  a.game === b.game && a.result === b.result && !a.actions.onDelete === !b.actions.onDelete);
+
+function MoveListView({ game, actions, result }: MoveListProps) {
   const fig = useSettings((s) => s.figurine);
   const refs = useRef<Record<string, HTMLSpanElement | null>>({});
   const viewport = useRef<HTMLDivElement>(null);

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { startTransition, useEffect, useRef, useState } from "react";
 import { engineSocket } from "../lib/api";
 import { engineSettingsFor, useSettings } from "../store/settings";
 import type { Score } from "../chess/eval";
@@ -51,7 +51,8 @@ export function useAnalysis(tabId: string, engineIds: string[], pos: AnalysisPos
           return;
         }
         if (msg.token !== tokens.current[eid]) return;
-        if (msg.type === "analysis") setResults((r) => ({ ...r, [eid]: { ...msg, fen: requested.current[eid] } }));
+        // not urgent: rendering this gives way to anything else, above all a new position on the board
+        if (msg.type === "analysis") startTransition(() => setResults((r) => ({ ...r, [eid]: { ...msg, fen: requested.current[eid] } })));
         else if (msg.type === "error")
           setResults((r) => ({ ...r, [eid]: { engine: eid, fen: requested.current[eid], lines: [], done: true, error: msg.message } }));
       }),

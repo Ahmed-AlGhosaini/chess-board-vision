@@ -1,21 +1,20 @@
 import { useEffect, useRef, useState } from "react";
-import { Alert, Anchor, Badge, Button, Group, Paper, SegmentedControl, Stack, Text } from "@mantine/core";
+import { Alert, Anchor, Badge, Button, Group, Paper, Stack, Text } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { IconFocus2, IconPlayerStop, IconPlayerTrackNext, IconRefresh, IconScreenShare } from "@tabler/icons-react";
-import { fenError, type Color } from "../chess/position";
-import { captureCanvas, redetect, resumeCapture, unmatchedPlacement } from "../live/capture";
+import { fenError, turnOf } from "../chess/position";
+import { captureCanvas, followedNode, redetect, resumeCapture } from "../live/capture";
 import { pageKnown, resumePage } from "../live/pageWatch";
 import { framesKnown, tabSource } from "../live/tabFrames";
-import { isWatching, lastId, patchLive, resetGame, startLichessWatch, stopWatch } from "../live/watch";
+import { isWatching, lastId, resetGame, startLichessWatch, stopWatch } from "../live/watch";
 import { useTabs, type LiveStatus, type Tab } from "../store/tabs";
-import { editorToFen, possibleCastling } from "./BoardEditor";
 
 const STATUS: Record<LiveStatus, { label: string; color: string }> = {
   connecting: { label: "Connecting…", color: "gray" },
   live: { label: "LIVE", color: "red" },
   reconnecting: { label: "Reconnecting…", color: "yellow" },
   ended: { label: "Game over", color: "blue" },
-  "lost-sync": { label: "Lost track", color: "orange" },
+  "lost-sync": { label: "Board not visible", color: "orange" },
   stopped: { label: "Stopped", color: "gray" },
   error: { label: "Error", color: "red" },
 };
@@ -26,7 +25,8 @@ export function LivePanel({ tab }: { tab: Tab }) {
   const [busy, setBusy] = useState(false);
   const live = tab.live!;
   const g = tab.game;
-  const atEnd = g.cursor === lastId(g);
+  const liveNode = followedNode(tab.id) ?? lastId(g); // a screen can be showing a variation
+  const atEnd = g.cursor === liveNode;
   const watching = isWatching(tab.id) && live.status !== "error";
   const st = STATUS[live.status];
   const fromExtension = !!live.session; // the extension sends this tab, rather than a screen shared here
@@ -70,7 +70,7 @@ export function LivePanel({ tab }: { tab: Tab }) {
           <Group gap={4} wrap="nowrap">
             {!atEnd && live.source !== "page" && (
               <Button size="compact-xs" variant="light" leftSection={<IconPlayerTrackNext size={12} />}
-                onClick={() => updateGame(tab.id, (x) => ({ ...x, cursor: lastId(x) }))}>
+                onClick={() => updateGame(tab.id, (x) => ({ ...x, cursor: liveNode }))}>
                 Jump to live
               </Button>
             )}
@@ -93,7 +93,8 @@ export function LivePanel({ tab }: { tab: Tab }) {
           </Text>
         )}
         {live.error && <Alert color={live.status === "error" ? "red" : "orange"} p="xs">{live.error}</Alert>}
-        {live.status === "lost-sync" && <LostTrack tab={tab} />}
+        {live.status === "lost-sync" && <NotVisible tabId={tab.id} />}
+        {live.source === "capture" && watching && !g.nodes[g.root].children.length && <SideToMove tab={tab} />}
         {live.source === "capture" && watching && <CapturePreview tabId={tab.id} status={live.status} />}
       </Stack>
     </Paper>
@@ -112,35 +113,34 @@ async function findBoard(tabId: string) {
   notifications.show(err ? { color: "orange", message: err } : { message: "Board found again" });
 }
 
-/** The capture saw a board that does not follow from the game: offer to start from it. */
-function LostTrack({ tab }: { tab: Tab }) {
-  const [turn, setTurn] = useState<Color>("white");
-  const restart = () => {
-    const placement = unmatchedPlacement(tab.id);
-    if (!placement) return;
-    const fen = editorToFen({ placement, turn, castling: possibleCastling(placement) });
-    const problem = fenError(fen);
-    if (problem) return notifications.show({ color: "orange", title: "The board on screen is not a legal position", message: problem });
-    resetGame(tab.id, fen, { ...tab.game.headers, Result: "*" });
-    patchLive(tab.id, { status: "live" });
-  };
+/** The picture shows no position: the board stays where it was until it shows one again. */
+function NotVisible({ tabId }: { tabId: string }) {
   return (
-    <Alert color="orange" p="xs" title="The board on screen no longer follows from this game">
+    <Alert color="orange" p="xs" title="No board on screen right now">
       <Text size="xs">
-        A few moves were missed, the board is covered, or a new game started. Start again from the position on screen, or find the board
-        again if it moved.
+        The picture does not read as a chess position: the board may be covered or have moved. Following carries on by itself as soon as
+        the board can be read, and the board is looked for elsewhere on the screen meanwhile.
       </Text>
-      <Group gap="xs" mt={6}>
-        <SegmentedControl size="xs" value={turn} onChange={(v) => setTurn(v as Color)}
-          data={[{ value: "white", label: "White to move" }, { value: "black", label: "Black to move" }]} />
-        <Button size="compact-xs" onClick={restart} disabled={!unmatchedPlacement(tab.id)}>Restart from screen</Button>
-        <Button size="compact-xs" variant="default" leftSection={<IconFocus2 size={12} />} onClick={() => findBoard(tab.id)}>Find board</Button>
-      </Group>
+      <Button size="compact-xs" variant="default" mt={6} leftSection={<IconFocus2 size={12} />} onClick={() => findBoard(tabId)}>Find board now</Button>
     </Alert>
   );
 }
 
-/** What the capture currently sees: its board crop, refreshed by the capture loop. */
+/** A picture rarely shows for certain whose move it is: at the start of a game, it can be put right. */
+function SideToMove({ tab }: { tab: Tab }) {
+  const g = tab.game;
+  const fen = g.nodes[g.root].fen;
+  const other = fen.replace(/ [wb] /, (m) => (m === " w " ? " b " : " w "));
+  if (fenError(other)) return null;
+  return (
+    <Group gap="xs">
+      <Text size="xs" c="dimmed">{turnOf(fen) === "white" ? "White" : "Black"} to move</Text>
+      <Button size="compact-xs" variant="default" onClick={() => resetGame(tab.id, other, g.headers.Event ? { Event: g.headers.Event } : {})}>Switch side</Button>
+    </Group>
+  );
+}
+
+/** What the capture currently sees: its board crop, refreshed at each read. */
 function CapturePreview({ tabId, status }: { tabId: string; status: LiveStatus }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -154,7 +154,7 @@ function CapturePreview({ tabId, status }: { tabId: string; status: LiveStatus }
     <Group gap="sm" align="flex-start" wrap="nowrap">
       <div ref={ref} className="capture-preview-holder" />
       <Stack gap={6}>
-        <Text size="xs" c="dimmed">The board as captured. It is read whenever it changes and then holds still.</Text>
+        <Text size="xs" c="dimmed">The board as captured. It is read as soon as it changes, and the board here follows it, whatever is played.</Text>
         <Button size="compact-xs" variant="default" leftSection={<IconFocus2 size={12} />} onClick={() => findBoard(tabId)}>Find board again</Button>
       </Stack>
     </Group>

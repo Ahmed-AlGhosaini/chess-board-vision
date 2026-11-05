@@ -4,7 +4,6 @@ import type { Color } from "../chess/position";
 
 export function EvalBar({ score, orientation }: { score?: Score; orientation: Color }) {
   const white = score ? barFraction(score) : 0.5;
-  const pct = `${(white * 100).toFixed(1)}%`;
   // compact label that fits the 22px bar: 0.4, 3.2, 12, #5
   let text = "";
   if (score?.mate !== undefined) text = score.mate === 0 ? formatScore(score) : `#${Math.abs(score.mate)}`;
@@ -16,7 +15,7 @@ export function EvalBar({ score, orientation }: { score?: Score; orientation: Co
   return (
     <Tooltip label={score ? `Evaluation ${formatScore(score)}` : "No evaluation"} position="left" openDelay={400}>
       <div className={`eval-bar ${orientation === "black" ? "flipped" : ""}`}>
-        <div className="eval-white" style={{ height: pct }} />
+        <div className="eval-white" style={{ transform: `scaleY(${white.toFixed(3)})` }} />
         <div className="eval-mid" />
         {text && (
           <span className={`eval-text ${whiteAhead === (orientation === "white") ? "bottom" : "top"} ${whiteAhead ? "on-white" : "on-black"}`}>

@@ -1,7 +1,7 @@
 import { classifyPlayed } from "../chess/classify";
 import { averageCpl, gameAccuracy, type MoveClass } from "../chess/eval";
 import { turnOf } from "../chess/position";
-import { addMove, mainline, movesTo, newGame, promoteVariation, rootFen, updateNode, type GameState } from "../chess/tree";
+import { addMove, isOnMainline, mainline, movesTo, newGame, promoteVariation, rootFen, updateNode, type GameState } from "../chess/tree";
 import { gameTitle } from "../components/ImportModal";
 import { setClassNag } from "../engine/report";
 import { engineSocket } from "../lib/api";
@@ -40,35 +40,43 @@ export function patchLive(tabId: string, patch: Partial<LiveState>) {
 }
 
 /**
- * Append moves at the end of the main line (ahead of any variation the user
- * explored there). The cursor follows only if it was on the last move.
- * Returns false if a move could not be played.
+ * Play moves after the node `from`, and return the nodes they lead through. From the main line they
+ * go ahead of any variation the user explored there; the cursor follows only if it was on `from`.
  */
-export function appendMoves(tabId: string, moves: LiveMove[], sound = true): boolean {
+export function playFrom(tabId: string, from: string, moves: LiveMove[], sound = true): string[] {
   const t = tabOf(tabId);
-  if (!t || !moves.length) return true;
+  if (!t || !moves.length) return [];
   let g = t.game;
-  const follow = g.cursor === lastId(g);
+  const follow = g.cursor === from;
+  const main = isOnMainline(g, from);
   const added: string[] = [];
+  let at = from;
   let last: { capture: boolean; check: boolean } | null = null;
   for (const m of moves) {
-    const r = addMove(g, m.uci, lastId(g));
+    const r = addMove(g, m.uci, at);
     if (!r) break;
-    g = promoteVariation(r.game, r.id);
+    g = main ? promoteVariation(r.game, r.id) : r.game;
     if (m.clock !== undefined && m.clock !== null) g = updateNode(g, r.id, { clock: m.clock });
     added.push(r.id);
+    at = r.id;
     last = r;
   }
-  g = { ...g, cursor: follow ? lastId(g) : t.game.cursor };
+  g = { ...g, cursor: follow ? at : t.game.cursor };
   useTabs.getState().updateTab(tabId, (tab) => ({ game: g, live: tab.live && { ...tab.live, clockAt: Date.now() } }));
-  if (sound && last && follow && moves.length === 1) moveSound(last);
+  if (sound && useSettings.getState().liveSound && last && follow && moves.length === 1) moveSound(last);
   evaluate(tabId, added);
-  return added.length === moves.length;
+  return added;
+}
+
+/** Append moves at the end of the main line. Returns false if a move could not be played. */
+export function appendMoves(tabId: string, moves: LiveMove[], sound = true): boolean {
+  const t = tabOf(tabId);
+  return !t || playFrom(tabId, lastId(t.game), moves, sound).length === moves.length;
 }
 
 /** Start the tab's game over from `fen` (a different game, or a capture that lost track). */
 export function resetGame(tabId: string, fen: string, headers: Record<string, string> = {}, moves: LiveMove[] = []) {
-  engineSocket.send({ type: "eval_cancel", id: key(tabId) });
+  engineSocket.send({ type: "eval_clear", id: key(tabId) }); // what was queued is for the old game, and the engine stays open
   let game = newGame(fen, headers);
   for (const m of moves) {
     const r = addMove(game, m.uci, lastId(game), m.clock !== undefined && m.clock !== null ? { clock: m.clock } : {});
@@ -79,6 +87,13 @@ export function resetGame(tabId: string, fen: string, headers: Record<string, st
   useTabs.getState().updateTab(tabId, (t) => ({
     game, report: undefined, title: headers.White ? gameTitle(game) : t.title, live: t.live && { ...t.live, clockAt: Date.now() },
   }));
+  evaluate(tabId, mainline(game));
+}
+
+/** Bring back a game this tab was following before. */
+export function restoreGame(tabId: string, game: GameState) {
+  engineSocket.send({ type: "eval_clear", id: key(tabId) });
+  useTabs.getState().updateTab(tabId, (t) => ({ game, report: undefined, live: t.live && { ...t.live, clockAt: Date.now() } }));
   evaluate(tabId, mainline(game));
 }
 
@@ -99,7 +114,7 @@ function applySnapshot(tabId: string, msg: { headers: Record<string, string>; in
 function endGame(tabId: string, result: string, reason: string) {
   const t = tabOf(tabId);
   if (!t) return;
-  if (t.live?.status === "live") playSound("end");
+  if (t.live?.status === "live" && useSettings.getState().liveSound) playSound("end");
   useTabs.getState().updateTab(tabId, (tab) => ({
     game: { ...tab.game, headers: { ...tab.game.headers, Result: result } },
     live: tab.live && { ...tab.live, status: "ended", reason },
@@ -151,9 +166,10 @@ function liveReport(g: GameState): Report {
   };
 }
 
-function onEval(tabId: string, msg: { tag: string; score: any; best?: string; second?: any }) {
+function onEval(tabId: string, msg: { tag: string; root: string; score: any; best?: string; second?: any }) {
   const t = tabOf(tabId);
-  if (!t?.game.nodes[msg.tag]) return;
+  // every game's first node is called "root": a search still running for a game since replaced says nothing about this one
+  if (!t?.game.nodes[msg.tag] || msg.root !== rootFen(t.game)) return;
   let g = updateNode(t.game, msg.tag, { score: msg.score, best: msg.best, second: msg.second });
   const ids = mainline(g);
   const i = ids.indexOf(msg.tag);

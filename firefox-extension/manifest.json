@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "chessvision: follow Lichess boards",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Sends the board in the browser tabs you choose to the chessvision app running on this computer, live.",
   "browser_specific_settings": {
     "gecko": {
