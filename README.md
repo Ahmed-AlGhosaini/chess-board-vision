@@ -1,4 +1,8 @@
-# chess-board-vision
+<p align="center">
+  <img src="firefox-extension/icon.svg" alt="" width="120" height="120">
+</p>
+
+<h1 align="center">ChessVision</h1>
 
 A local chess analysis app that follows games while they are played. Point it at a live game
 on a website such as Lichess or Chess.com, or at a stream or video on Twitch or YouTube, and
@@ -14,9 +18,8 @@ It also has these tools ([details](#analysis-ui)):
 * **Puzzles:** tactics from Lichess, filtered by theme and difficulty.
 * **Databases:** import PGN files or your Lichess and Chess.com games, and search them.
 * **Firefox extension:** choose a browser tab and the app follows the board in it.
-* **[Command line](#command-line):** turn a screenshot into a FEN and the engine's top moves.
 
-![The main page, screenshot import, live analysis of a Lichess game and of a YouTube video next to the same game in the app, and the Firefox extension's popup on a Lichess tab](docs/overview.png)
+![The main page, screenshot import, live analysis of a Lichess game and of a YouTube video next to the same game in the app, the Firefox extension's popup on a Lichess tab, the opening explorer on the masters database, and the report after a game](docs/overview.png)
 
 ## Download
 
@@ -41,39 +44,6 @@ can be added in the app.
 `about:debugging#/runtime/this-firefox`, choose **Load Temporary Add-on** and pick
 `firefox-extension/manifest.json`. Firefox removes it when it closes; [Firefox extension](#firefox-extension)
 explains how to keep it.
-
-## Command line
-
-Screenshot of a 2D chessboard → board located → pieces recognised → FEN →
-Stockfish's top 3 moves → numbered arrows drawn back onto the image.
-
-```
-python analyze.py examples/screenshot.png
-```
-
-![example](examples/screenshot_analysis.png)
-
-```
-board at x=380 y=110, size 600x600px
-
-r . b q k . . r
-. p p p b p p p
-p . n . . n . .
-. . . . p . . .
-B . . . P . . .
-. . . . . N . .
-P P P P . P P P
-R N B Q . R K .
-
-FEN:      r1bqk2r/1pppbppp/p1n2n2/4p3/B3P3/5N2/PPPP1PPP/RNBQ1RK1 w kq - 0 1
-Lichess:  https://lichess.org/analysis/standard/r1bqk2r/...
-View:     white at the bottom (auto-detected)
-
-Stockfish, depth 18 (eval from White's side):
-1. Re1        +0.40   Re1 b5 Bb3 O-O c3 Na5 Bc2 d5
-2. d3         +0.32   d3 b5 Bb3 d6 a4 Bd7 c3 Na5
-3. Bxc6       +0.17   Bxc6 dxc6 d3 Bg4 Nbd2 Nd7 Nc4 f6
-```
 
 ## Analysis UI
 
